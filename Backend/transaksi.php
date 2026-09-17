@@ -1,6 +1,7 @@
 <?php
-// Backend/dashboard.php
+// Backend/transaksi.php
 require_once __DIR__ . '/components/koneksi.php';
+restrict_access(['admin', 'kasir']);
 
 // Cek apakah user sudah login
 if (!isset($_SESSION['user_id'])) {
@@ -22,7 +23,88 @@ try {
     $nama_outlet = 'Outlet Utama';
 }
 
-// Proses Update Status Transaksi dari Dashboard (jika ada aksi ubah status)
+$pesan_sukses = '';
+$pesan_error = '';
+
+// 1. Proses Tambah Transaksi Baru
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tambah_transaksi'])) {
+    $id_outlet      = $id_outlet_user;
+    $id_member      = $_POST['id_member'];
+    $id_paket       = $_POST['id_paket'];
+    $tgl            = date('Y-m-d H:i:s');
+    $batas_waktu    = date('Y-m-d H:i:s', strtotime('+3 days'));
+    
+    // Logika Status Pembayaran & Tgl Bayar
+    $dibayar        = $_POST['dibayar']; 
+    if ($dibayar === 'dibayar') {
+        $tgl_bayar = date('Y-m-d H:i:s'); // Jika lunas, isi tanggal bayar sekarang
+    } else {
+        $tgl_bayar = NULL; // Jika belum lunas, kosongkan (sesuai setting NULL di database)
+    }
+    
+    $qty            = floatval($_POST['qty']); 
+    $biaya_tambahan = floatval($_POST['biaya_tambahan'] ?? 0);
+    $diskon         = abs(floatval($_POST['diskon'] ?? 0)); // Gunakan abs() agar diskon pasti positif
+    $pajak          = floatval($_POST['pajak'] ?? 0);
+    $status         = 'baru'; 
+    $id_user        = $_SESSION['user_id'];
+
+    if (!empty($id_member) && !empty($id_paket) && $qty > 0) {
+        try {
+            // Ambil harga paket berdasarkan ID paket
+            $stmt_p = $pdo->prepare("SELECT harga FROM tb_paket WHERE id = :id");
+            $stmt_p->execute(['id' => $id_paket]);
+            $paket = $stmt_p->fetch();
+
+            if ($paket) {
+                $harga_satuan = $paket['harga'];
+                // Perhitungan total harga dengan diskon yang pasti dikurangkan
+                $total_harga = ($harga_satuan * $qty) + $biaya_tambahan - $diskon + $pajak;
+
+                // Generate kode invoice unik
+                $kode_invoice = 'TRX-' . date('YmdHis');
+
+                $stmt = $pdo->prepare("INSERT INTO tb_transaksi (id_outlet, kode_invoice, id_member, tgl, batas_waktu, tgl_bayar, biaya_tambahan, diskon, pajak, status, dibayar, id_user) VALUES (:id_outlet, :kode_invoice, :id_member, :tgl, :batas_waktu, :tgl_bayar, :biaya_tambahan, :diskon, :pajak, :status, :dibayar, :id_user)");
+                
+                $stmt->execute([
+                    'id_outlet'      => $id_outlet,
+                    'kode_invoice'   => $kode_invoice,
+                    'id_member'      => $id_member,
+                    'tgl'            => $tgl,
+                    'batas_waktu'    => $batas_waktu,
+                    'tgl_bayar'      => $tgl_bayar,
+                    'biaya_tambahan' => $biaya_tambahan,
+                    'diskon'         => $diskon,
+                    'pajak'          => $pajak,
+                    'status'         => $status,
+                    'dibayar'        => $dibayar,
+                    'id_user'        => $id_user
+                ]);
+
+                $id_transaksi_baru = $pdo->lastInsertId();
+
+                // Simpan detail transaksi
+                $stmt_detail = $pdo->prepare("INSERT INTO tb_detail_transaksi (id_transaksi, id_paket, qty, keterangan) VALUES (:id_transaksi, :id_paket, :qty, :keterangan)");
+                $stmt_detail->execute([
+                    'id_transaksi' => $id_transaksi_baru,
+                    'id_paket'     => $id_paket,
+                    'qty'          => $qty,
+                    'keterangan'   => 'Cucian masuk'
+                ]);
+
+                $pesan_sukses = "Transaksi berhasil disimpan dengan Invoice: <b>$kode_invoice</b>";
+            } else {
+                $pesan_error = "Paket cucian tidak ditemukan!";
+            }
+        } catch (PDOException $e) {
+            $pesan_error = "Gagal menyimpan transaksi: " . $e->getMessage();
+        }
+    } else {
+        $pesan_error = "Member, paket, dan jumlah/berat wajib diisi dengan benar!";
+    }
+}
+
+// 2. Proses Update Status Transaksi / Pembayaran
 if (isset($_GET['ubah_status']) && isset($_GET['id'])) {
     $id = $_GET['id'];
     $status_baru = $_GET['ubah_status'];
@@ -33,25 +115,27 @@ if (isset($_GET['ubah_status']) && isset($_GET['id'])) {
             $stmt = $pdo->prepare("UPDATE tb_transaksi SET status = :status WHERE id = :id");
         }
         $stmt->execute(['status' => $status_baru, 'id' => $id]);
-        header("Location: dashboard.php?pesan=status_sukses");
+        header("Location: transaksi.php?pesan=status_sukses");
         exit();
     } catch (PDOException $e) {
         $pesan_error = "Gagal memperbarui status transaksi.";
     }
 }
 
-// Hitung statistik ringkasan
-try {
-    $total_pelanggan = $pdo->query("SELECT COUNT(*) FROM tb_member")->fetchColumn();
-    $cucian_diproses = $pdo->query("SELECT COUNT(*) FROM tb_transaksi WHERE status = 'proses' OR status = 'baru'")->fetchColumn();
-    $cucian_siap     = $pdo->query("SELECT COUNT(*) FROM tb_transaksi WHERE status = 'selesai'")->fetchColumn();
-} catch (PDOException $e) {
-    $total_pelanggan = 0;
-    $cucian_diproses = 0;
-    $cucian_siap = 0;
+if (isset($_GET['pesan']) && $_GET['pesan'] == 'status_sukses') {
+    $pesan_sukses = "Status transaksi berhasil diperbarui!";
 }
 
-// Ambil riwayat transaksi terbaru (disamakan dengan halaman transaksi.php)
+// Ambil data member & paket
+try {
+    $list_member = $pdo->query("SELECT * FROM tb_member ORDER BY nama ASC")->fetchAll();
+    $list_paket  = $pdo->query("SELECT tb_paket.*, tb_outlet.nama AS nama_outlet FROM tb_paket JOIN tb_outlet ON tb_paket.id_outlet = tb_outlet.id ORDER BY tb_paket.nama_paket ASC")->fetchAll();
+} catch (PDOException $e) {
+    $list_member = [];
+    $list_paket  = [];
+}
+
+// Ambil riwayat transaksi lengkap dengan data tambahan
 try {
     $query = "SELECT t.*, 
               COALESCE(m.nama, 'Member Umum / Terhapus') AS nama_member, 
@@ -64,7 +148,7 @@ try {
               LEFT JOIN tb_user u ON t.id_user = u.id
               LEFT JOIN tb_detail_transaksi dt ON t.id = dt.id_transaksi
               LEFT JOIN tb_paket pk ON dt.id_paket = pk.id
-              ORDER BY t.id DESC LIMIT 5";
+              ORDER BY t.id DESC";
     $list_transaksi = $pdo->query($query)->fetchAll();
 } catch (PDOException $e) {
     $list_transaksi = [];
@@ -76,7 +160,7 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - Laundry App</title>
+    <title>Manajemen Transaksi - Laundry App</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -142,15 +226,14 @@ try {
             color: var(--burgundy-primary);
         }
 
-        .stat-card {
-            border: none;
-            border-radius: 1rem;
-            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-            transition: transform 0.2s;
+        .btn-burgundy {
+            background-color: var(--burgundy-primary);
+            color: #fff;
         }
 
-        .stat-card:hover {
-            transform: translateY(-3px);
+        .btn-burgundy:hover {
+            background-color: var(--burgundy-hover);
+            color: #fff;
         }
 
         .table-custom th {
@@ -165,69 +248,69 @@ try {
 
     <div class="d-flex">
         <!-- Sidebar -->
-       <nav id="sidebar" class="d-none d-md-block">
+        <nav id="sidebar" class="d-none d-md-block">
     <div class="sidebar-brand d-flex align-items-center gap-2 fs-5">
         <i class="bi bi-basket3-fill"></i> LaundryApp
     </div>
     <ul class="nav flex-column mt-3">
-        <!-- Dashboard: Bisa diakses Admin & Kasir (atau disesuaikan) -->
-        <?php if (in_array($role_user, ['admin', 'kasir'])): ?>
+        <!-- Dashboard: Admin & Kasir -->
+        <?php if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'kasir'])): ?>
         <li class="nav-item">
-            <a href="dashboard.php" class="nav-link <?= (basename($_SERVER['PHP_SELF']) == 'dashboard.php') ? 'active' : ''; ?>">
+            <a href="dashboard.php" class="nav-link">
                 <i class="bi bi-speedometer2 fs-5"></i> Dashboard
             </a>
         </li>
         <?php endif; ?>
 
-        <!-- CRUD Outlet: HANYA ADMIN -->
-        <?php if ($role_user === 'admin'): ?>
+        <!-- Outlet: HANYA ADMIN -->
+        <?php if ((isset($role_user) && $role_user === 'admin') || (isset($_SESSION['role']) && $_SESSION['role'] === 'admin')): ?>
         <li class="nav-item">
-            <a href="outlet.php" class="nav-link <?= (basename($_SERVER['PHP_SELF']) == 'outlet.php') ? 'active' : ''; ?>">
+            <a href="outlet.php" class="nav-link">
                 <i class="bi bi-shop fs-5"></i> Outlet
             </a>
         </li>
         <?php endif; ?>
 
-        <!-- Registrasi Pelanggan / Member: ADMIN & KASIR -->
-        <?php if (in_array($role_user, ['admin', 'kasir'])): ?>
+        <!-- Member: Admin & Kasir -->
+        <?php if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'kasir'])): ?>
         <li class="nav-item">
-            <a href="member.php" class="nav-link <?= (basename($_SERVER['PHP_SELF']) == 'member.php') ? 'active' : ''; ?>">
+            <a href="member.php" class="nav-link">
                 <i class="bi bi-people fs-5"></i> Member
             </a>
         </li>
         <?php endif; ?>
 
-        <!-- CRUD Paket Cucian: HANYA ADMIN -->
-        <?php if ($role_user === 'admin'): ?>
+        <!-- Paket Cucian: HANYA ADMIN -->
+        <?php if ((isset($role_user) && $role_user === 'admin') || (isset($_SESSION['role']) && $_SESSION['role'] === 'admin')): ?>
         <li class="nav-item">
-            <a href="paket.php" class="nav-link <?= (basename($_SERVER['PHP_SELF']) == 'paket.php') ? 'active' : ''; ?>">
+            <a href="paket.php" class="nav-link">
                 <i class="bi bi-tag fs-5"></i> Paket Cucian
             </a>
         </li>
         <?php endif; ?>
 
-        <!-- CRUD Pengguna / Kasir: HANYA ADMIN -->
-        <?php if ($role_user === 'admin'): ?>
+        <!-- Pengguna / Kasir: HANYA ADMIN -->
+        <?php if ((isset($role_user) && $role_user === 'admin') || (isset($_SESSION['role']) && $_SESSION['role'] === 'admin')): ?>
         <li class="nav-item">
-            <a href="user.php" class="nav-link <?= (basename($_SERVER['PHP_SELF']) == 'user.php') ? 'active' : ''; ?>">
+            <a href="user.php" class="nav-link">
                 <i class="bi bi-person-badge fs-5"></i> Pengguna / Kasir
             </a>
         </li>
         <?php endif; ?>
 
-        <!-- Entri Transaksi: ADMIN & KASIR -->
-        <?php if (in_array($role_user, ['admin', 'kasir'])): ?>
+        <!-- Transaksi: Admin & Kasir (Karena ini halaman transaksi.php, maka aktif) -->
+        <?php if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'kasir'])): ?>
         <li class="nav-item">
-            <a href="transaksi.php" class="nav-link <?= (basename($_SERVER['PHP_SELF']) == 'transaksi.php') ? 'active' : ''; ?>">
+            <a href="transaksi.php" class="nav-link active">
                 <i class="bi bi-cart-check fs-5"></i> Transaksi
             </a>
         </li>
         <?php endif; ?>
 
-        <!-- Generate Laporan: ADMIN, KASIR, & OWNER -->
-        <?php if (in_array($role_user, ['admin', 'kasir', 'owner'])): ?>
+        <!-- Laporan: Admin, Kasir, & Owner -->
+        <?php if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'kasir', 'owner'])): ?>
         <li class="nav-item">
-            <a href="laporan.php" class="nav-link <?= (basename($_SERVER['PHP_SELF']) == 'laporan.php') ? 'active' : ''; ?>">
+            <a href="laporan.php" class="nav-link">
                 <i class="bi bi-file-earmark-text fs-5"></i> Laporan
             </a>
         </li>
@@ -244,7 +327,7 @@ try {
         <!-- Main Wrapper -->
         <div id="content" class="p-0">
             <!-- Top Navbar -->
-          <!-- Top Navbar -->
+            <!-- Top Navbar -->
             <nav class="navbar navbar-top navbar-expand mb-4">
                 <div class="container-fluid">
                     <div class="d-flex align-items-center gap-2">
@@ -291,68 +374,33 @@ try {
 
             <!-- Page Content -->
             <div class="container-fluid px-4">
-                <div class="mb-4">
-                    <h3 class="fw-bold text-dark">Dashboard Operasional</h3>
-                    <p class="text-muted mb-0">Pantau status cucian, member, dan transaksi laundry di sini.</p>
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h3 class="fw-bold text-dark">Manajemen Transaksi Kasir</h3>
+                        <p class="text-muted mb-0">Input cucian masuk, atur progres pengerjaan, dan status pembayaran.</p>
+                    </div>
+                    <button type="button" class="btn btn-burgundy rounded-pill px-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#modalTambahTransaksi">
+                        <i class="bi bi-plus-lg me-1"></i> Transaksi Baru
+                    </button>
                 </div>
 
-                <!-- Notifikasi Status -->
-                <?php if (isset($_GET['pesan']) && $_GET['pesan'] == 'status_sukses'): ?>
+                <!-- Alert Notifikasi -->
+                <?php if (!empty($pesan_sukses)): ?>
                     <div class="alert alert-success alert-dismissible fade show" role="alert">
-                        <i class="bi bi-check-circle-fill me-2"></i> Status transaksi berhasil diperbarui dari Dashboard!
+                        <i class="bi bi-check-circle-fill me-2"></i> <?= $pesan_sukses; ?>
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
                 <?php endif; ?>
 
-                <!-- Statistik Cards -->
-                <div class="row g-4 mb-4">
-                    <div class="col-md-4">
-                        <div class="card stat-card p-3">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="bg-burgundy-soft p-3 rounded-4 fs-4">
-                                    <i class="bi bi-people-fill"></i>
-                                </div>
-                                <div>
-                                    <span class="text-muted small d-block">Total Pelanggan</span>
-                                    <h3 class="fw-bold mb-0 text-dark"><?= $total_pelanggan; ?></h3>
-                                </div>
-                            </div>
-                        </div>
+                <?php if (!empty($pesan_error)): ?>
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i> <?= $pesan_error; ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
-                    <div class="col-md-4">
-                        <div class="card stat-card p-3">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="bg-burgundy-soft p-3 rounded-4 fs-4">
-                                    <i class="bi bi-arrow-repeat"></i>
-                                </div>
-                                <div>
-                                    <span class="text-muted small d-block">Cucian Diproses</span>
-                                    <h3 class="fw-bold mb-0 text-dark"><?= $cucian_diproses; ?></h3>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col-md-4">
-                        <div class="card stat-card p-3">
-                            <div class="d-flex align-items-center gap-3">
-                                <div class="bg-burgundy-soft p-3 rounded-4 fs-4">
-                                    <i class="bi bi-check-circle-fill"></i>
-                                </div>
-                                <div>
-                                    <span class="text-muted small d-block">Selesai / Siap Diambil</span>
-                                    <h3 class="fw-bold mb-0 text-dark"><?= $cucian_siap; ?></h3>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <?php endif; ?>
 
-                <!-- Tabel Riwayat Transaksi Terbaru -->
+                <!-- Tabel Transaksi -->
                 <div class="card border-0 shadow-sm rounded-4 p-4 mb-4">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="fw-bold text-dark mb-0"><i class="bi bi-clock-history me-2 text-secondary"></i>Riwayat Transaksi Terbaru</h5>
-                        <a href="transaksi.php" class="btn btn-sm btn-outline-secondary rounded-pill px-3">Lihat Semua</a>
-                    </div>
                     <div class="table-responsive">
                         <table class="table table-hover align-middle table-custom">
                             <thead>
@@ -369,10 +417,11 @@ try {
                             </thead>
                             <tbody>
                                 <?php if (count($list_transaksi) > 0): ?>
-                                    <?php $no = 1;
-                                    foreach ($list_transaksi as $t):
+                                    <?php $no = 1; foreach ($list_transaksi as $t): 
+                                        // Hitung total akhir dengan abs() pada diskon agar nilainya pasti positif dan mengurangi total
                                         $subtotal = ($t['harga_paket'] * $t['qty']);
-                                        $grand_total = $subtotal + $t['biaya_tambahan'] - $t['diskon'] + $t['pajak'];
+                                        $diskon_bersih = abs($t['diskon']);
+                                        $grand_total = $subtotal + $t['biaya_tambahan'] - $diskon_bersih + $t['pajak'];
                                     ?>
                                         <tr>
                                             <td><?= $no++; ?></td>
@@ -381,14 +430,15 @@ try {
                                             <td>
                                                 <span class="small d-block fw-bold"><?= htmlspecialchars($t['nama_paket']); ?></span>
                                                 <span class="text-muted" style="font-size: 12px;">Qty/Berat: <?= $t['qty']; ?></span>
-
-                                                <?php if ($t['biaya_tambahan'] > 0 || $t['diskon'] > 0 || $t['pajak'] > 0): ?>
+                                                
+                                                <!-- Rincian Biaya Tambahan & Diskon -->
+                                                <?php if ($t['biaya_tambahan'] > 0 || $diskon_bersih > 0 || $t['pajak'] > 0): ?>
                                                     <div class="text-secondary mt-1" style="font-size: 11px;">
                                                         <?php if ($t['biaya_tambahan'] > 0): ?>
                                                             <span class="text-success">+ Tambahan: Rp <?= number_format($t['biaya_tambahan'], 0, ',', '.'); ?></span><br>
                                                         <?php endif; ?>
-                                                        <?php if ($t['diskon'] > 0): ?>
-                                                            <span class="text-danger">- Diskon: Rp <?= number_format($t['diskon'], 0, ',', '.'); ?></span><br>
+                                                        <?php if ($diskon_bersih > 0): ?>
+                                                            <span class="text-danger">- Diskon: Rp <?= number_format($diskon_bersih, 0, ',', '.'); ?></span><br>
                                                         <?php endif; ?>
                                                         <?php if ($t['pajak'] > 0): ?>
                                                             <span class="text-info">+ Pajak: Rp <?= number_format($t['pajak'], 0, ',', '.'); ?></span><br>
@@ -402,12 +452,12 @@ try {
                                             <td class="small text-secondary"><?= htmlspecialchars($t['tgl']); ?></td>
                                             <td>
                                                 <?php
-                                                $status = $t['status'];
-                                                $badge_s = 'bg-secondary';
-                                                if ($status === 'baru') $badge_s = 'bg-info text-dark';
-                                                elseif ($status === 'proses') $badge_s = 'bg-warning text-dark';
-                                                elseif ($status === 'selesai') $badge_s = 'bg-primary';
-                                                elseif ($status === 'diambil') $badge_s = 'bg-success';
+                                                    $status = $t['status'];
+                                                    $badge_s = 'bg-secondary';
+                                                    if ($status === 'baru') $badge_s = 'bg-info text-dark';
+                                                    elseif ($status === 'proses') $badge_s = 'bg-warning text-dark';
+                                                    elseif ($status === 'selesai') $badge_s = 'bg-primary';
+                                                    elseif ($status === 'diambil') $badge_s = 'bg-success';
                                                 ?>
                                                 <span class="badge <?= $badge_s; ?> text-uppercase" style="font-size: 10px;">
                                                     <?= htmlspecialchars($status); ?>
@@ -426,10 +476,10 @@ try {
                                                         Ubah Status
                                                     </button>
                                                     <ul class="dropdown-menu">
-                                                        <li><a class="dropdown-item" href="dashboard.php?id=<?= $t['id']; ?>&ubah_status=baru">Baru</a></li>
-                                                        <li><a class="dropdown-item" href="dashboard.php?id=<?= $t['id']; ?>&ubah_status=proses">Proses</a></li>
-                                                        <li><a class="dropdown-item" href="dashboard.php?id=<?= $t['id']; ?>&ubah_status=selesai">Selesai</a></li>
-                                                        <li><a class="dropdown-item" href="dashboard.php?id=<?= $t['id']; ?>&ubah_status=diambil">Diambil (Lunas)</a></li>
+                                                        <li><a class="dropdown-item" href="transaksi.php?id=<?= $t['id']; ?>&ubah_status=baru">Baru</a></li>
+                                                        <li><a class="dropdown-item" href="transaksi.php?id=<?= $t['id']; ?>&ubah_status=proses">Proses</a></li>
+                                                        <li><a class="dropdown-item" href="transaksi.php?id=<?= $t['id']; ?>&ubah_status=selesai">Selesai</a></li>
+                                                        <li><a class="dropdown-item" href="transaksi.php?id=<?= $t['id']; ?>&ubah_status=diambil">Diambil (Lunas)</a></li>
                                                     </ul>
                                                 </div>
                                             </td>
@@ -439,7 +489,7 @@ try {
                                     <tr>
                                         <td colspan="8" class="text-center text-muted py-4">
                                             <i class="bi bi-cart-x fs-2 d-block mb-2"></i>
-                                            Belum ada data riwayat transaksi.
+                                            Belum ada data transaksi kasir.
                                         </td>
                                     </tr>
                                 <?php endif; ?>
@@ -448,6 +498,65 @@ try {
                     </div>
                 </div>
 
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Tambah Transaksi -->
+    <div class="modal fade" id="modalTambahTransaksi" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content border-0 rounded-4 shadow">
+                <form action="" method="POST">
+                    <div class="modal-header border-bottom-0 pb-0">
+                        <h5 class="modal-title fw-bold text-dark">Input Transaksi Baru</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold small">Pilih Pelanggan (Member)</label>
+                            <select name="id_member" class="form-select" required>
+                                <option value="">-- Pilih Member --</option>
+                                <?php foreach ($list_member as $m): ?>
+                                    <option value="<?= $m['id']; ?>"><?= htmlspecialchars($m['nama']); ?> (<?= htmlspecialchars($m['telp'] ?? $m['no_tlp'] ?? $m['telepon'] ?? '-'); ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold small">Pilih Paket Cucian</label>
+                            <select name="id_paket" class="form-select" required>
+                                <option value="">-- Pilih Paket & Layanan --</option>
+                                <?php foreach ($list_paket as $p): ?>
+                                    <option value="<?= $p['id']; ?>"><?= htmlspecialchars($p['nama_outlet']); ?> - <?= htmlspecialchars($p['nama_paket']); ?> (Rp <?= number_format($p['harga'], 0, ',', '.'); ?>)</option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold small">Jumlah / Berat (Kg atau Pcs)</label>
+                            <input type="number" step="0.01" class="form-control" name="qty" required placeholder="Contoh: 3.5">
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-semibold small">Biaya Tambahan (Rp)</label>
+                                <input type="number" class="form-control" name="biaya_tambahan" value="0" placeholder="0">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-semibold small">Diskon (Rp)</label>
+                                <input type="number" class="form-control" name="diskon" value="0" placeholder="0">
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold small">Status Pembayaran Awal</label>
+                            <select name="dibayar" class="form-select" required>
+                                <option value="belum_dibayar">Belum Lunas (Bayar nanti saat diambil)</option>
+                                <option value="dibayar">Lunas (Bayar sekarang)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-top-0 pt-0">
+                        <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Batal</button>
+                        <button type="submit" name="tambah_transaksi" class="btn btn-burgundy rounded-pill px-4">Proses Transaksi</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>

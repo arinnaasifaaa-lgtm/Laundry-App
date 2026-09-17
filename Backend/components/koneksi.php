@@ -48,4 +48,36 @@ function verifyCsrfToken($token) {
         exit("Akses ditolak: CSRF Token tidak valid!");
     }
 }
+
+// ==========================================
+// Fungsi Helper untuk Outlet Aktif
+// ==========================================
+function get_nama_outlet_aktif($pdo) {
+    if (!isset($_SESSION['id_outlet'])) {
+        return 'Outlet Utama';
+    }
+    try {
+        $stmt = $pdo->prepare("SELECT nama FROM tb_outlet WHERE id = :id");
+        $stmt->execute(['id' => $_SESSION['id_outlet']]);
+        $result = $stmt->fetch();
+        return $result['nama'] ?? 'Outlet Utama';
+    } catch (PDOException $e) {
+        return 'Outlet Utama';
+    }
+}
+
+// ==========================================
+// Fungsi Satpam Hak Akses Role
+// ==========================================
+function restrict_access($allowed_roles = []) {
+    if (!isset($_SESSION['role'])) {
+        header("Location: login.php");
+        exit();
+    }
+    
+    if (!in_array($_SESSION['role'], $allowed_roles)) {
+        echo "<script>alert('Akses Ditolak! Anda tidak memiliki izin ke halaman ini.'); window.location='dashboard.php';</script>";
+        exit();
+    }
+}
 ?>
