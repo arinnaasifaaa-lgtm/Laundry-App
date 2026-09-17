@@ -34,34 +34,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tambah_transaksi'])) 
     $tgl            = date('Y-m-d H:i:s');
     $batas_waktu    = date('Y-m-d H:i:s', strtotime('+3 days'));
     
-    // Logika Status Pembayaran & Tgl Bayar
     $dibayar        = $_POST['dibayar']; 
-    if ($dibayar === 'dibayar') {
-        $tgl_bayar = date('Y-m-d H:i:s'); // Jika lunas, isi tanggal bayar sekarang
-    } else {
-        $tgl_bayar = NULL; // Jika belum lunas, kosongkan (sesuai setting NULL di database)
-    }
+    $tgl_bayar      = ($dibayar === 'dibayar') ? date('Y-m-d H:i:s') : NULL;
     
     $qty            = floatval($_POST['qty']); 
     $biaya_tambahan = floatval($_POST['biaya_tambahan'] ?? 0);
-    $diskon         = abs(floatval($_POST['diskon'] ?? 0)); // Gunakan abs() agar diskon pasti positif
+    $diskon         = abs(floatval($_POST['diskon'] ?? 0)); 
     $pajak          = floatval($_POST['pajak'] ?? 0);
     $status         = 'baru'; 
     $id_user        = $_SESSION['user_id'];
 
     if (!empty($id_member) && !empty($id_paket) && $qty > 0) {
         try {
-            // Ambil harga paket berdasarkan ID paket
             $stmt_p = $pdo->prepare("SELECT harga FROM tb_paket WHERE id = :id");
             $stmt_p->execute(['id' => $id_paket]);
             $paket = $stmt_p->fetch();
 
             if ($paket) {
-                $harga_satuan = $paket['harga'];
-                // Perhitungan total harga dengan diskon yang pasti dikurangkan
-                $total_harga = ($harga_satuan * $qty) + $biaya_tambahan - $diskon + $pajak;
-
-                // Generate kode invoice unik
                 $kode_invoice = 'TRX-' . date('YmdHis');
 
                 $stmt = $pdo->prepare("INSERT INTO tb_transaksi (id_outlet, kode_invoice, id_member, tgl, batas_waktu, tgl_bayar, biaya_tambahan, diskon, pajak, status, dibayar, id_user) VALUES (:id_outlet, :kode_invoice, :id_member, :tgl, :batas_waktu, :tgl_bayar, :biaya_tambahan, :diskon, :pajak, :status, :dibayar, :id_user)");
@@ -83,7 +72,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tambah_transaksi'])) 
 
                 $id_transaksi_baru = $pdo->lastInsertId();
 
-                // Simpan detail transaksi
                 $stmt_detail = $pdo->prepare("INSERT INTO tb_detail_transaksi (id_transaksi, id_paket, qty, keterangan) VALUES (:id_transaksi, :id_paket, :qty, :keterangan)");
                 $stmt_detail->execute([
                     'id_transaksi' => $id_transaksi_baru,
@@ -104,7 +92,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tambah_transaksi'])) 
     }
 }
 
-// 2. Proses Update Status Transaksi / Pembayaran
+// 2. Proses Edit / Update Transaksi yang Sudah Ada
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_transaksi'])) {
+    $id_transaksi   = $_POST['id_transaksi'];
+    $id_member      = $_POST['id_member'];
+    $id_paket       = $_POST['id_paket'];
+    $qty            = floatval($_POST['qty']);
+    $biaya_tambahan = floatval($_POST['biaya_tambahan'] ?? 0);
+    $diskon         = abs(floatval($_POST['diskon'] ?? 0));
+    $pajak          = floatval($_POST['pajak'] ?? 0);
+    $dibayar        = $_POST['dibayar'];
+    
+    // Perbarui tanggal bayar jika status diubah jadi lunas
+    $tgl_bayar_sql  = ($dibayar === 'dibayar') ? ", tgl_bayar = COALESCE(tgl_bayar, NOW())" : ", tgl_bayar = NULL";
+
+    try {
+        // Update tabel transaksi utama
+        $stmt_up = $pdo->prepare("UPDATE tb_transaksi SET id_member = :id_member, biaya_tambahan = :biaya_tambahan, diskon = :diskon, pajak = :pajak, dibayar = :dibayar $tgl_bayar_sql WHERE id = :id");
+        $stmt_up->execute([
+            'id_member'      => $id_member,
+            'biaya_tambahan' => $biaya_tambahan,
+            'diskon'         => $diskon,
+            'pajak'          => $pajak,
+            'dibayar'        => $dibayar,
+            'id'             => $id_transaksi
+        ]);
+
+        // Update tabel detail transaksi (paket & qty/berat)
+        $stmt_dt_up = $pdo->prepare("UPDATE tb_detail_transaksi SET id_paket = :id_paket, qty = :qty WHERE id_transaksi = :id_transaksi");
+        $stmt_dt_up->execute([
+            'id_paket'     => $id_paket,
+            'qty'          => $qty,
+            'id_transaksi' => $id_transaksi
+        ]);
+
+        $pesan_sukses = "Data transaksi berhasil diperbarui!";
+    } catch (PDOException $e) {
+        $pesan_error = "Gagal memperbarui transaksi: " . $e->getMessage();
+    }
+}
+
+// 3. Proses Update Status Transaksi
 if (isset($_GET['ubah_status']) && isset($_GET['id'])) {
     $id = $_GET['id'];
     $status_baru = $_GET['ubah_status'];
@@ -126,20 +154,16 @@ if (isset($_GET['pesan']) && $_GET['pesan'] == 'status_sukses') {
     $pesan_sukses = "Status transaksi berhasil diperbarui!";
 }
 
-// Ambil data member & paket
+// Ambil data member, paket, dan transaksi
 try {
     $list_member = $pdo->query("SELECT * FROM tb_member ORDER BY nama ASC")->fetchAll();
     $list_paket  = $pdo->query("SELECT tb_paket.*, tb_outlet.nama AS nama_outlet FROM tb_paket JOIN tb_outlet ON tb_paket.id_outlet = tb_outlet.id ORDER BY tb_paket.nama_paket ASC")->fetchAll();
-} catch (PDOException $e) {
-    $list_member = [];
-    $list_paket  = [];
-}
-
-// Ambil riwayat transaksi lengkap dengan data tambahan
-try {
+    
     $query = "SELECT t.*, 
+              m.id AS id_member_asli,
               COALESCE(m.nama, 'Member Umum / Terhapus') AS nama_member, 
               COALESCE(u.nama, 'Administrator') AS nama_user, 
+              dt.id_paket AS id_paket_asli,
               COALESCE(pk.nama_paket, 'Paket Manual') AS nama_paket, 
               COALESCE(pk.harga, 0) AS harga_paket,
               COALESCE(dt.qty, 1) AS qty
@@ -151,6 +175,8 @@ try {
               ORDER BY t.id DESC";
     $list_transaksi = $pdo->query($query)->fetchAll();
 } catch (PDOException $e) {
+    $list_member = [];
+    $list_paket  = [];
     $list_transaksi = [];
 }
 ?>
@@ -210,11 +236,6 @@ try {
             border-left: 4px solid var(--burgundy-primary);
         }
 
-        #content {
-            width: 100%;
-            padding: 2rem;
-        }
-
         .navbar-top {
             background-color: #ffffff;
             border-bottom: 1px solid #ebd3d7;
@@ -249,116 +270,34 @@ try {
     <div class="d-flex">
         <!-- Sidebar -->
         <nav id="sidebar" class="d-none d-md-block">
-    <div class="sidebar-brand d-flex align-items-center gap-2 fs-5">
-        <i class="bi bi-basket3-fill"></i> LaundryApp
-    </div>
-    <ul class="nav flex-column mt-3">
-        <!-- Dashboard: Admin & Kasir -->
-        <?php if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'kasir'])): ?>
-        <li class="nav-item">
-            <a href="dashboard.php" class="nav-link">
-                <i class="bi bi-speedometer2 fs-5"></i> Dashboard
-            </a>
-        </li>
-        <?php endif; ?>
-
-        <!-- Outlet: HANYA ADMIN -->
-        <?php if ((isset($role_user) && $role_user === 'admin') || (isset($_SESSION['role']) && $_SESSION['role'] === 'admin')): ?>
-        <li class="nav-item">
-            <a href="outlet.php" class="nav-link">
-                <i class="bi bi-shop fs-5"></i> Outlet
-            </a>
-        </li>
-        <?php endif; ?>
-
-        <!-- Member: Admin & Kasir -->
-        <?php if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'kasir'])): ?>
-        <li class="nav-item">
-            <a href="member.php" class="nav-link">
-                <i class="bi bi-people fs-5"></i> Member
-            </a>
-        </li>
-        <?php endif; ?>
-
-        <!-- Paket Cucian: HANYA ADMIN -->
-        <?php if ((isset($role_user) && $role_user === 'admin') || (isset($_SESSION['role']) && $_SESSION['role'] === 'admin')): ?>
-        <li class="nav-item">
-            <a href="paket.php" class="nav-link">
-                <i class="bi bi-tag fs-5"></i> Paket Cucian
-            </a>
-        </li>
-        <?php endif; ?>
-
-        <!-- Pengguna / Kasir: HANYA ADMIN -->
-        <?php if ((isset($role_user) && $role_user === 'admin') || (isset($_SESSION['role']) && $_SESSION['role'] === 'admin')): ?>
-        <li class="nav-item">
-            <a href="user.php" class="nav-link">
-                <i class="bi bi-person-badge fs-5"></i> Pengguna / Kasir
-            </a>
-        </li>
-        <?php endif; ?>
-
-        <!-- Transaksi: Admin & Kasir (Karena ini halaman transaksi.php, maka aktif) -->
-        <?php if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'kasir'])): ?>
-        <li class="nav-item">
-            <a href="transaksi.php" class="nav-link active">
-                <i class="bi bi-cart-check fs-5"></i> Transaksi
-            </a>
-        </li>
-        <?php endif; ?>
-
-        <!-- Laporan: Admin, Kasir, & Owner -->
-        <?php if (isset($_SESSION['role']) && in_array($_SESSION['role'], ['admin', 'kasir', 'owner'])): ?>
-        <li class="nav-item">
-            <a href="laporan.php" class="nav-link">
-                <i class="bi bi-file-earmark-text fs-5"></i> Laporan
-            </a>
-        </li>
-        <?php endif; ?>
-
-        <li class="nav-item mt-4">
-            <a href="logout.php" class="nav-link text-danger">
-                <i class="bi bi-box-arrow-right fs-5"></i> Logout
-            </a>
-        </li>
-    </ul>
-</nav>
+            <div class="sidebar-brand d-flex align-items-center gap-2 fs-5">
+                <i class="bi bi-basket3-fill"></i> LaundryApp
+            </div>
+            <ul class="nav flex-column mt-3">
+                <li class="nav-item"><a href="dashboard.php" class="nav-link"><i class="bi bi-speedometer2 fs-5"></i> Dashboard</a></li>
+                <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
+                <li class="nav-item"><a href="outlet.php" class="nav-link"><i class="bi bi-shop fs-5"></i> Outlet</a></li>
+                <?php endif; ?>
+                <li class="nav-item"><a href="member.php" class="nav-link"><i class="bi bi-people fs-5"></i> Member</a></li>
+                <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
+                <li class="nav-item"><a href="paket.php" class="nav-link"><i class="bi bi-tag fs-5"></i> Paket Cucian</a></li>
+                <li class="nav-item"><a href="user.php" class="nav-link"><i class="bi bi-person-badge fs-5"></i> Pengguna / Kasir</a></li>
+                <?php endif; ?>
+                <li class="nav-item"><a href="transaksi.php" class="nav-link active"><i class="bi bi-cart-check fs-5"></i> Transaksi</a></li>
+                <li class="nav-item"><a href="laporan.php" class="nav-link"><i class="bi bi-file-earmark-text fs-5"></i> Laporan</a></li>
+                <li class="nav-item mt-4"><a href="logout.php" class="nav-link text-danger"><i class="bi bi-box-arrow-right fs-5"></i> Logout</a></li>
+            </ul>
+        </nav>
 
         <!-- Main Wrapper -->
-        <div id="content" class="p-0">
-            <!-- Top Navbar -->
+        <div id="content" class="p-0 w-100">
             <!-- Top Navbar -->
             <nav class="navbar navbar-top navbar-expand mb-4">
                 <div class="container-fluid">
                     <div class="d-flex align-items-center gap-2">
-                        <?php 
-                        $nama_outlet_aktif = get_nama_outlet_aktif($pdo);
-                        // Cek apakah user adalah admin, berikan opsi dropdown ganti outlet cepat
-                        if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): 
-                            $stmt_all_o = $pdo->query("SELECT * FROM tb_outlet ORDER BY nama ASC");
-                            $list_o = $stmt_all_o->fetchAll();
-                        ?>
-                            <div class="dropdown">
-                                <button class="btn btn-sm bg-burgundy-soft dropdown-toggle px-3 py-2 rounded-pill fw-semibold border-0" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <i class="bi bi-geo-alt-fill me-1"></i> <?= htmlspecialchars($nama_outlet_aktif); ?>
-                                </button>
-                                <ul class="dropdown-menu shadow-sm border-0 rounded-4 p-2">
-                                    <li><h6 class="dropdown-header small text-muted">Pindah Posisi Outlet:</h6></li>
-                                    <?php foreach ($list_o as $lo): ?>
-                                        <li>
-                                            <a class="dropdown-item rounded-2 py-2 <?= ($_SESSION['id_outlet'] == $lo['id']) ? 'active bg-danger text-white' : ''; ?>" href="ganti_outlet.php?id=<?= $lo['id']; ?>&redirect=<?= urlencode(basename($_SERVER['PHP_SELF'])); ?>">
-                                                <i class="bi bi-shop me-2"></i> <?= htmlspecialchars($lo['nama']); ?>
-                                            </a>
-                                        </li>
-                                    <?php endforeach; ?>
-                                </ul>
-                            </div>
-                        <?php else: ?>
-                            <!-- Jika kasir, tampilkan teks badge biasa sesuai lokasi tugasnya -->
-                            <span class="badge bg-burgundy-soft px-3 py-2 rounded-pill">
-                                <i class="bi bi-geo-alt-fill me-1"></i> <?= htmlspecialchars($nama_outlet_aktif); ?>
-                            </span>
-                        <?php endif; ?>
+                        <span class="badge bg-burgundy-soft px-3 py-2 rounded-pill">
+                            <i class="bi bi-geo-alt-fill me-1"></i> <?= htmlspecialchars($nama_outlet); ?>
+                        </span>
                     </div>
                     <div class="d-flex align-items-center gap-3">
                         <div class="text-end">
@@ -377,14 +316,13 @@ try {
                 <div class="d-flex justify-content-between align-items-center mb-4">
                     <div>
                         <h3 class="fw-bold text-dark">Manajemen Transaksi Kasir</h3>
-                        <p class="text-muted mb-0">Input cucian masuk, atur progres pengerjaan, dan status pembayaran.</p>
+                        <p class="text-muted mb-0">Input cucian masuk, edit rincian berat/diskon, atur progres pengerjaan.</p>
                     </div>
                     <button type="button" class="btn btn-burgundy rounded-pill px-4 shadow-sm" data-bs-toggle="modal" data-bs-target="#modalTambahTransaksi">
                         <i class="bi bi-plus-lg me-1"></i> Transaksi Baru
                     </button>
                 </div>
 
-                <!-- Alert Notifikasi -->
                 <?php if (!empty($pesan_sukses)): ?>
                     <div class="alert alert-success alert-dismissible fade show" role="alert">
                         <i class="bi bi-check-circle-fill me-2"></i> <?= $pesan_sukses; ?>
@@ -418,7 +356,6 @@ try {
                             <tbody>
                                 <?php if (count($list_transaksi) > 0): ?>
                                     <?php $no = 1; foreach ($list_transaksi as $t): 
-                                        // Hitung total akhir dengan abs() pada diskon agar nilainya pasti positif dan mengurangi total
                                         $subtotal = ($t['harga_paket'] * $t['qty']);
                                         $diskon_bersih = abs($t['diskon']);
                                         $grand_total = $subtotal + $t['biaya_tambahan'] - $diskon_bersih + $t['pajak'];
@@ -431,7 +368,6 @@ try {
                                                 <span class="small d-block fw-bold"><?= htmlspecialchars($t['nama_paket']); ?></span>
                                                 <span class="text-muted" style="font-size: 12px;">Qty/Berat: <?= $t['qty']; ?></span>
                                                 
-                                                <!-- Rincian Biaya Tambahan & Diskon -->
                                                 <?php if ($t['biaya_tambahan'] > 0 || $diskon_bersih > 0 || $t['pajak'] > 0): ?>
                                                     <div class="text-secondary mt-1" style="font-size: 11px;">
                                                         <?php if ($t['biaya_tambahan'] > 0): ?>
@@ -471,19 +407,97 @@ try {
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <div class="dropdown">
-                                                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle rounded-pill px-3" type="button" data-bs-toggle="dropdown">
-                                                        Ubah Status
+                                                <div class="d-flex gap-1">
+                                                    <!-- Tombol Edit Transaksi -->
+                                                    <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-2" 
+                                                        data-bs-toggle="modal" 
+                                                        data-bs-target="#modalEditTransaksi<?= $t['id']; ?>" 
+                                                        title="Edit Berat, Diskon, Biaya Tambahan">
+                                                        <i class="bi bi-pencil-square"></i>
                                                     </button>
-                                                    <ul class="dropdown-menu">
-                                                        <li><a class="dropdown-item" href="transaksi.php?id=<?= $t['id']; ?>&ubah_status=baru">Baru</a></li>
-                                                        <li><a class="dropdown-item" href="transaksi.php?id=<?= $t['id']; ?>&ubah_status=proses">Proses</a></li>
-                                                        <li><a class="dropdown-item" href="transaksi.php?id=<?= $t['id']; ?>&ubah_status=selesai">Selesai</a></li>
-                                                        <li><a class="dropdown-item" href="transaksi.php?id=<?= $t['id']; ?>&ubah_status=diambil">Diambil (Lunas)</a></li>
-                                                    </ul>
+
+                                                    <!-- Dropdown Ubah Status -->
+                                                    <div class="dropdown">
+                                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle rounded-pill px-3" type="button" data-bs-toggle="dropdown">
+                                                            Status
+                                                        </button>
+                                                        <ul class="dropdown-menu">
+                                                            <li><a class="dropdown-item" href="transaksi.php?id=<?= $t['id']; ?>&ubah_status=baru">Baru</a></li>
+                                                            <li><a class="dropdown-item" href="transaksi.php?id=<?= $t['id']; ?>&ubah_status=proses">Proses</a></li>
+                                                            <li><a class="dropdown-item" href="transaksi.php?id=<?= $t['id']; ?>&ubah_status=selesai">Selesai</a></li>
+                                                            <li><a class="dropdown-item" href="transaksi.php?id=<?= $t['id']; ?>&ubah_status=diambil">Diambil (Lunas)</a></li>
+                                                        </ul>
+                                                    </div>
                                                 </div>
                                             </td>
                                         </tr>
+
+                                        <!-- Modal Edit Transaksi untuk Setiap Baris -->
+                                        <div class="modal fade" id="modalEditTransaksi<?= $t['id']; ?>" tabindex="-1" aria-hidden="true">
+                                            <div class="modal-dialog">
+                                                <div class="modal-content border-0 rounded-4 shadow">
+                                                    <form action="" method="POST">
+                                                        <div class="modal-header border-bottom-0 pb-0">
+                                                            <h5 class="modal-title fw-bold text-dark">Edit Transaksi: <?= htmlspecialchars($t['kode_invoice']); ?></h5>
+                                                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                        </div>
+                                                        <div class="modal-body text-start">
+                                                            <input type="hidden" name="id_transaksi" value="<?= $t['id']; ?>">
+                                                            
+                                                            <div class="mb-3">
+                                                                <label class="form-label fw-semibold small">Pelanggan (Member)</label>
+                                                                <select name="id_member" class="form-select" required>
+                                                                    <?php foreach ($list_member as $m): ?>
+                                                                        <option value="<?= $m['id']; ?>" <?= ($m['id'] == $t['id_member_asli']) ? 'selected' : ''; ?>>
+                                                                            <?= htmlspecialchars($m['nama']); ?>
+                                                                        </option>
+                                                                    <?php endforeach; ?>
+                                                                </select>
+                                                            </div>
+                                                            <div class="mb-3">
+                                                                <label class="form-label fw-semibold small">Paket Cucian</label>
+                                                                <select name="id_paket" class="form-select" required>
+                                                                    <?php foreach ($list_paket as $p): ?>
+                                                                        <option value="<?= $p['id']; ?>" <?= ($p['id'] == $t['id_paket_asli']) ? 'selected' : ''; ?>>
+                                                                            <?= htmlspecialchars($p['nama_paket']); ?> (Rp <?= number_format($p['harga'], 0, ',', '.'); ?>)
+                                                                        </option>
+                                                                    <?php endforeach; ?>
+                                                                </select>
+                                                            </div>
+                                                            <div class="mb-3">
+                                                                <label class="form-label fw-semibold small">Jumlah / Berat (Kg atau Pcs)</label>
+                                                                <input type="number" step="0.01" min="0.01" class="form-control" name="qty" value="<?= $t['qty']; ?>" required>
+                                                            </div>
+                                                            <div class="row">
+                                                                <div class="col-md-6 mb-3">
+                                                                    <label class="form-label fw-semibold small">Biaya Tambahan (Rp)</label>
+                                                                    <input type="number" min="0" class="form-control" name="biaya_tambahan" value="<?= $t['biaya_tambahan']; ?>">
+                                                                </div>
+                                                                <div class="col-md-6 mb-3">
+                                                                    <label class="form-label fw-semibold small">Diskon (Rp)</label>
+                                                                    <input type="number" min="0" class="form-control" name="diskon" value="<?= $t['diskon']; ?>">
+                                                                </div>
+                                                            </div>
+                                                            <div class="mb-3">
+                                                                <label class="form-label fw-semibold small">Pajak (Rp)</label>
+                                                                <input type="number" min="0" class="form-control" name="pajak" value="<?= $t['pajak']; ?>">
+                                                            </div>
+                                                            <div class="mb-3">
+                                                                <label class="form-label fw-semibold small">Status Pembayaran</label>
+                                                                <select name="dibayar" class="form-select" required>
+                                                                    <option value="belum_dibayar" <?= ($t['dibayar'] === 'belum_dibayar') ? 'selected' : ''; ?>>Belum Lunas</option>
+                                                                    <option value="dibayar" <?= ($t['dibayar'] === 'dibayar') ? 'selected' : ''; ?>>Lunas</option>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                        <div class="modal-footer border-top-0 pt-0">
+                                                            <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Batal</button>
+                                                            <button type="submit" name="edit_transaksi" class="btn btn-burgundy rounded-pill px-4">Simpan Perubahan</button>
+                                                        </div>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </div>
                                     <?php endforeach; ?>
                                 <?php else: ?>
                                     <tr>
@@ -502,7 +516,7 @@ try {
         </div>
     </div>
 
-    <!-- Modal Tambah Transaksi -->
+    <!-- Modal Tambah Transaksi Baru -->
     <div class="modal fade" id="modalTambahTransaksi" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content border-0 rounded-4 shadow">
@@ -517,7 +531,7 @@ try {
                             <select name="id_member" class="form-select" required>
                                 <option value="">-- Pilih Member --</option>
                                 <?php foreach ($list_member as $m): ?>
-                                    <option value="<?= $m['id']; ?>"><?= htmlspecialchars($m['nama']); ?> (<?= htmlspecialchars($m['telp'] ?? $m['no_tlp'] ?? $m['telepon'] ?? '-'); ?>)</option>
+                                    <option value="<?= $m['id']; ?>"><?= htmlspecialchars($m['nama']); ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -526,23 +540,27 @@ try {
                             <select name="id_paket" class="form-select" required>
                                 <option value="">-- Pilih Paket & Layanan --</option>
                                 <?php foreach ($list_paket as $p): ?>
-                                    <option value="<?= $p['id']; ?>"><?= htmlspecialchars($p['nama_outlet']); ?> - <?= htmlspecialchars($p['nama_paket']); ?> (Rp <?= number_format($p['harga'], 0, ',', '.'); ?>)</option>
+                                    <option value="<?= $p['id']; ?>"><?= htmlspecialchars($p['nama_paket']); ?> (Rp <?= number_format($p['harga'], 0, ',', '.'); ?>)</option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-semibold small">Jumlah / Berat (Kg atau Pcs)</label>
-                            <input type="number" step="0.01" class="form-control" name="qty" required placeholder="Contoh: 3.5">
+                            <input type="number" step="0.01" min="0.01" class="form-control" name="qty" required placeholder="Contoh: 3.5">
                         </div>
                         <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label class="form-label fw-semibold small">Biaya Tambahan (Rp)</label>
-                                <input type="number" class="form-control" name="biaya_tambahan" value="0" placeholder="0">
+                                <input type="number" min="0" class="form-control" name="biaya_tambahan" value="0" placeholder="0">
                             </div>
                             <div class="col-md-6 mb-3">
                                 <label class="form-label fw-semibold small">Diskon (Rp)</label>
-                                <input type="number" class="form-control" name="diskon" value="0" placeholder="0">
+                                <input type="number" min="0" class="form-control" name="diskon" value="0" placeholder="0">
                             </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold small">Pajak (Rp)</label>
+                            <input type="number" min="0" class="form-control" name="pajak" value="0" placeholder="0">
                         </div>
                         <div class="mb-3">
                             <label class="form-label fw-semibold small">Status Pembayaran Awal</label>
