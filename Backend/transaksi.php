@@ -26,6 +26,24 @@ try {
 $pesan_sukses = '';
 $pesan_error = '';
 
+// Ambil parameter filter
+$periode = $_GET['periode'] ?? '';
+$tahun = $_GET['tahun'] ?? date('Y');
+$status_filter = $_GET['status'] ?? '';
+
+// Fungsi Bantuan untuk Pencatatan Activity Log ke Database
+function catat_log($pdo, $username, $aktivitas) {
+    try {
+        $stmt = $pdo->prepare("INSERT INTO activity_log (username, activity, created_at) VALUES (:username, :activity, NOW())");
+        $stmt->execute([
+            'username' => $username,
+            'activity' => $aktivitas
+        ]);
+    } catch (PDOException $e) {
+        // Abaikan jika tabel log mengalami kendala
+    }
+}
+
 // 1. Proses Tambah Transaksi Baru
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tambah_transaksi'])) {
     $id_outlet      = $id_outlet_user;
@@ -81,6 +99,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tambah_transaksi'])) 
                 ]);
 
                 $pesan_sukses = "Transaksi berhasil disimpan dengan Invoice: <b>$kode_invoice</b>";
+                catat_log($pdo, $nama_user, "Menambahkan transaksi baru dengan invoice $kode_invoice");
+
             } else {
                 $pesan_error = "Paket cucian tidak ditemukan!";
             }
@@ -92,7 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tambah_transaksi'])) 
     }
 }
 
-// 2. Proses Edit / Update Transaksi yang Sudah Ada
+// 2. Proses Edit / Update Transaksi
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_transaksi'])) {
     $id_transaksi   = $_POST['id_transaksi'];
     $id_member      = $_POST['id_member'];
@@ -103,11 +123,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_transaksi'])) {
     $pajak          = floatval($_POST['pajak'] ?? 0);
     $dibayar        = $_POST['dibayar'];
     
-    // Perbarui tanggal bayar jika status diubah jadi lunas
     $tgl_bayar_sql  = ($dibayar === 'dibayar') ? ", tgl_bayar = COALESCE(tgl_bayar, NOW())" : ", tgl_bayar = NULL";
 
     try {
-        // Update tabel transaksi utama
         $stmt_up = $pdo->prepare("UPDATE tb_transaksi SET id_member = :id_member, biaya_tambahan = :biaya_tambahan, diskon = :diskon, pajak = :pajak, dibayar = :dibayar $tgl_bayar_sql WHERE id = :id");
         $stmt_up->execute([
             'id_member'      => $id_member,
@@ -118,7 +136,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_transaksi'])) {
             'id'             => $id_transaksi
         ]);
 
-        // Update tabel detail transaksi (paket & qty/berat)
         $stmt_dt_up = $pdo->prepare("UPDATE tb_detail_transaksi SET id_paket = :id_paket, qty = :qty WHERE id_transaksi = :id_transaksi");
         $stmt_dt_up->execute([
             'id_paket'     => $id_paket,
@@ -127,6 +144,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_transaksi'])) {
         ]);
 
         $pesan_sukses = "Data transaksi berhasil diperbarui!";
+        catat_log($pdo, $nama_user, "Memperbarui data transaksi ID: $id_transaksi");
+
     } catch (PDOException $e) {
         $pesan_error = "Gagal memperbarui transaksi: " . $e->getMessage();
     }
@@ -143,6 +162,8 @@ if (isset($_GET['ubah_status']) && isset($_GET['id'])) {
             $stmt = $pdo->prepare("UPDATE tb_transaksi SET status = :status WHERE id = :id");
         }
         $stmt->execute(['status' => $status_baru, 'id' => $id]);
+        
+        catat_log($pdo, $nama_user, "Mengubah status transaksi ID $id menjadi $status_baru");
         header("Location: transaksi.php?pesan=status_sukses");
         exit();
     } catch (PDOException $e) {
@@ -154,7 +175,7 @@ if (isset($_GET['pesan']) && $_GET['pesan'] == 'status_sukses') {
     $pesan_sukses = "Status transaksi berhasil diperbarui!";
 }
 
-// Ambil data member, paket, dan transaksi
+// Ambil data member, paket, dan transaksi dengan filter
 try {
     $list_member = $pdo->query("SELECT * FROM tb_member ORDER BY nama ASC")->fetchAll();
     $list_paket  = $pdo->query("SELECT tb_paket.*, tb_outlet.nama AS nama_outlet FROM tb_paket JOIN tb_outlet ON tb_paket.id_outlet = tb_outlet.id ORDER BY tb_paket.nama_paket ASC")->fetchAll();
@@ -171,9 +192,37 @@ try {
               LEFT JOIN tb_member m ON t.id_member = m.id
               LEFT JOIN tb_user u ON t.id_user = u.id
               LEFT JOIN tb_detail_transaksi dt ON t.id = dt.id_transaksi
-              LEFT JOIN tb_paket pk ON dt.id_paket = pk.id
-              ORDER BY t.id DESC";
-    $list_transaksi = $pdo->query($query)->fetchAll();
+              LEFT JOIN tb_paket pk ON dt.id_paket = pk.id WHERE 1=1";
+    
+    $params = [];
+
+    // Filter Status
+    if (!empty($status_filter)) {
+        $query .= " AND t.status = :status";
+        $params['status'] = $status_filter;
+    }
+
+    // Filter Periode 3 Bulan
+    if (!empty($periode)) {
+        $map_bulan = [
+            1 => ['-01-01', '-03-31'], // Januari - Maret
+            2 => ['-04-01', '-06-30'], // April - Juni
+            3 => ['-07-01', '-09-30'], // Juli - September
+            4 => ['-10-01', '-12-31']  // Oktober - Desember
+        ];
+        
+        if (isset($map_bulan[$periode])) {
+            $query .= " AND t.tgl BETWEEN :start_date AND :end_date";
+            $params['start_date'] = $tahun . $map_bulan[$periode][0] . ' 00:00:00';
+            $params['end_date'] = $tahun . $map_bulan[$periode][1] . ' 23:59:59';
+        }
+    }
+
+    $query .= " ORDER BY t.id DESC";
+    $stmt = $pdo->prepare($query);
+    $stmt->execute($params);
+    $list_transaksi = $stmt->fetchAll();
+
 } catch (PDOException $e) {
     $list_member = [];
     $list_paket  = [];
@@ -190,6 +239,8 @@ try {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/jpeg" href="img/loundryku.jpg">
+
     <style>
         :root {
             --burgundy-primary: #800020;
@@ -292,12 +343,37 @@ try {
         <!-- Main Wrapper -->
         <div id="content" class="p-0 w-100">
             <!-- Top Navbar -->
-            <nav class="navbar navbar-top navbar-expand mb-4">
+             <nav class="navbar navbar-top navbar-expand mb-4">
                 <div class="container-fluid">
                     <div class="d-flex align-items-center gap-2">
-                        <span class="badge bg-burgundy-soft px-3 py-2 rounded-pill">
-                            <i class="bi bi-geo-alt-fill me-1"></i> <?= htmlspecialchars($nama_outlet); ?>
-                        </span>
+                        <?php 
+                        $nama_outlet_aktif = get_nama_outlet_aktif($pdo);
+                        // Cek apakah user adalah admin, berikan opsi dropdown ganti outlet cepat
+                        if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): 
+                            $stmt_all_o = $pdo->query("SELECT * FROM tb_outlet ORDER BY nama ASC");
+                            $list_o = $stmt_all_o->fetchAll();
+                        ?>
+                            <div class="dropdown">
+                                <button class="btn btn-sm bg-burgundy-soft dropdown-toggle px-3 py-2 rounded-pill fw-semibold border-0" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="bi bi-geo-alt-fill me-1"></i> <?= htmlspecialchars($nama_outlet_aktif); ?>
+                                </button>
+                                <ul class="dropdown-menu shadow-sm border-0 rounded-4 p-2">
+                                    <li><h6 class="dropdown-header small text-muted">Pindah Posisi Outlet:</h6></li>
+                                    <?php foreach ($list_o as $lo): ?>
+                                        <li>
+                                            <a class="dropdown-item rounded-2 py-2 <?= ($_SESSION['id_outlet'] == $lo['id']) ? 'active bg-danger text-white' : ''; ?>" href="ganti_outlet.php?id=<?= $lo['id']; ?>&redirect=<?= urlencode(basename($_SERVER['PHP_SELF'])); ?>">
+                                                <i class="bi bi-shop me-2"></i> <?= htmlspecialchars($lo['nama']); ?>
+                                            </a>
+                                        </li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            </div>
+                        <?php else: ?>
+                            <!-- Jika kasir, tampilkan teks badge biasa sesuai lokasi tugasnya -->
+                            <span class="badge bg-burgundy-soft px-3 py-2 rounded-pill">
+                                <i class="bi bi-geo-alt-fill me-1"></i> <?= htmlspecialchars($nama_outlet_aktif); ?>
+                            </span>
+                        <?php endif; ?>
                     </div>
                     <div class="d-flex align-items-center gap-3">
                         <div class="text-end">
@@ -336,6 +412,39 @@ try {
                         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                     </div>
                 <?php endif; ?>
+
+                <!-- Form Filter Rentang 3 Bulan & Status -->
+                <div class="card shadow-sm rounded-4 p-4 mb-4">
+                    <form method="GET" action="transaksi.php" class="row g-3 align-items-end bg-light p-3 rounded-4">
+                        <div class="col-md-4">
+                            <label class="form-label small fw-bold text-secondary">Periode 3 Bulan</label>
+                            <select name="periode" class="form-select rounded-pill border-0 shadow-sm">
+                                <option value="">Semua Periode</option>
+                                <option value="1" <?= $periode=='1'?'selected':''; ?>>Januari - Maret</option>
+                                <option value="2" <?= $periode=='2'?'selected':''; ?>>April - Juni</option>
+                                <option value="3" <?= $periode=='3'?'selected':''; ?>>Juli - September</option>
+                                <option value="4" <?= $periode=='4'?'selected':''; ?>>Oktober - Desember</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold text-secondary">Tahun</label>
+                            <input type="number" name="tahun" class="form-control rounded-pill border-0 shadow-sm" value="<?= htmlspecialchars($tahun); ?>">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label small fw-bold text-secondary">Status Cucian</label>
+                            <select name="status" class="form-select rounded-pill border-0 shadow-sm">
+                                <option value="">Semua Status</option>
+                                <option value="baru" <?= $status_filter=='baru'?'selected':''; ?>>Baru</option>
+                                <option value="proses" <?= $status_filter=='proses'?'selected':''; ?>>Proses</option>
+                                <option value="selesai" <?= $status_filter=='selesai'?'selected':''; ?>>Selesai</option>
+                                <option value="diambil" <?= $status_filter=='diambil'?'selected':''; ?>>Diambil</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-burgundy rounded-pill w-100 shadow-sm"><i class="bi bi-filter me-1"></i> Filter</button>
+                        </div>
+                    </form>
+                </div>
 
                 <!-- Tabel Transaksi -->
                 <div class="card border-0 shadow-sm rounded-4 p-4 mb-4">
@@ -503,7 +612,7 @@ try {
                                     <tr>
                                         <td colspan="8" class="text-center text-muted py-4">
                                             <i class="bi bi-cart-x fs-2 d-block mb-2"></i>
-                                            Belum ada data transaksi kasir.
+                                            Tidak ada data transaksi untuk periode tersebut.
                                         </td>
                                     </tr>
                                 <?php endif; ?>
@@ -581,5 +690,4 @@ try {
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
-
 </html>

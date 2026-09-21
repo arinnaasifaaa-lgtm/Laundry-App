@@ -80,6 +80,10 @@ try {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Logo -->
+   <link rel="icon" type="image/jpeg" href="img/loundryku.jpg">
+    
     <style>
         :root {
             --burgundy-primary: #800020;
@@ -243,7 +247,6 @@ try {
 
         <!-- Main Wrapper -->
         <div id="content" class="p-0">
-            <!-- Top Navbar -->
           <!-- Top Navbar -->
             <nav class="navbar navbar-top navbar-expand mb-4">
                 <div class="container-fluid">

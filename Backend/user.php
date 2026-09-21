@@ -167,6 +167,9 @@ try {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <!-- Google Fonts: Inter -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <link rel="icon" type="image/jpeg" href="img/loundryku.jpg">
+
     <style>
         :root {
             --burgundy-primary: #800020;

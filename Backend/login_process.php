@@ -35,6 +35,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['role'] = $user['role'];
             $_SESSION['id_outlet'] = $user['id_outlet'];
 
+            // --- SISIPKAN PENCATATAN LOG LOGIN DI SINI ---
+            try {
+                $log_stmt = $pdo->prepare("INSERT INTO activity_log (username, activity) VALUES (:username, :activity)");
+                $log_stmt->execute([
+                    'username' => $username,
+                    'activity' => 'Berhasil melakukan login ke sistem'
+                ]);
+            } catch (Exception $e) {
+                // Biarkan kosong atau abaikan jika log gagal agar login tidak terganggu
+            }
+            // ---------------------------------------------
+
             header("Location: dashboard.php");
             exit();
         } else {
