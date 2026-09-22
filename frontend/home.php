@@ -1,4 +1,4 @@
-<?phpnavbar
+<?php
 // Hubungkan ke file koneksi dengan huruf B besar pada folder Backend
 require_once __DIR__ . '/../Backend/components/koneksi.php';
 
@@ -71,17 +71,17 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['kasir', 'admi
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a href="../backend/member.php" class="px-3 text-body-emphasis bg-body-secondary-hover nav-link rounded-3 text-base leading-6 fw-semibold">
+                                <a href="member.php" class="px-3 text-body-emphasis bg-body-secondary-hover nav-link rounded-3 text-base leading-6 fw-semibold">
                                     Registrasi Member
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a href="../backend/transaksi.php" class="px-3 text-body-emphasis bg-body-secondary-hover nav-link rounded-3 text-base leading-6 fw-semibold">
+                                <a href="transaksi.php" class="px-3 text-body-emphasis bg-body-secondary-hover nav-link rounded-3 text-base leading-6 fw-semibold">
                                     Entri Transaksi
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a href="../backend/laporan.php" class="px-3 text-body-emphasis bg-body-secondary-hover nav-link rounded-3 text-base leading-6 fw-semibold">
+                                <a href="laporan.php" class="px-3 text-body-emphasis bg-body-secondary-hover nav-link rounded-3 text-base leading-6 fw-semibold">
                                     Generate Laporan
                                 </a>
                             </li>
@@ -116,10 +116,10 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['kasir', 'admi
                                 Panel Sistem Kasir Lumiere Laundry. Kelola data pelanggan, input cucian masuk, dan cetak laporan dengan cepat dan mudah.
                             </p>
                             <div class="mt-4 pt-3 d-flex align-items-center justify-content-center justify-content-xl-start column-gap-3" data-aos="fade" data-aos-duration="3000">
-                                <a href="../backend/transaksi.php" class="btn btn-lg btn-primary text-white text-sm fw-semibold">
+                                <a href="transaksi.php" class="btn btn-lg btn-primary text-white text-sm fw-semibold">
                                     <i class="fa fa-receipt me-2"></i> Mulai Transaksi
                                 </a>
-                                <a href="../backend/member.php" class="btn btn-lg btn-outline-light text-sm fw-semibold">
+                                <a href="member.php" class="btn btn-lg btn-outline-light text-sm fw-semibold">
                                     <i class="fa fa-user-plus me-2"></i> Daftar Member
                                 </a>
                             </div>
@@ -130,7 +130,7 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['kasir', 'admi
         </div>
     </div>
 
-    <!-- Menu Pintas Fitur Kasir (Menggantikan bagian services bawaan) -->
+    <!-- Menu Pintas Fitur Kasir -->
     <div class="overflow-hidden py-7 py-sm-8 py-xl-9 bg-body-tertiary">
         <div class="container">
             <div class="mx-auto max-w-2xl text-center mb-5">
@@ -146,7 +146,7 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['kasir', 'admi
                             <div class="mb-3 text-primary"><i class="fa fa-user-plus fa-3x"></i></div>
                             <h3 class="card-title text-body-emphasis text-lg fw-semibold">Registrasi Member</h3>
                             <p class="text-body-secondary text-sm mt-3">Daftarkan pelanggan baru ke sistem sebelum memproses transaksi cucian.</p>
-                            <a href="../backend/member.php" class="btn btn-primary text-white mt-4 btn-sm fw-semibold">Buka Menu</a>
+                            <a href="member.php" class="btn btn-primary text-white mt-4 btn-sm fw-semibold">Buka Menu</a>
                         </div>
                     </div>
                 </div>
@@ -158,7 +158,7 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['kasir', 'admi
                             <div class="mb-3 text-primary"><i class="fa fa-receipt fa-3x"></i></div>
                             <h3 class="card-title text-body-emphasis text-lg fw-semibold">Entri Transaksi</h3>
                             <p class="text-body-secondary text-sm mt-3">Input data cucian masuk, pilih paket laundry, dan perbarui status pengerjaan.</p>
-                            <a href="../backend/transaksi.php" class="btn btn-primary text-white mt-4 btn-sm fw-semibold">Buka Menu</a>
+                            <a href="transaksi.php" class="btn btn-primary text-white mt-4 btn-sm fw-semibold">Buka Menu</a>
                         </div>
                     </div>
                 </div>
@@ -170,7 +170,7 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['kasir', 'admi
                             <div class="mb-3 text-primary"><i class="fa fa-file-invoice-dollar fa-3x"></i></div>
                             <h3 class="card-title text-body-emphasis text-lg fw-semibold">Generate Laporan</h3>
                             <p class="text-body-secondary text-sm mt-3">Cetak rekapitulasi data transaksi keuangan harian maupun bulanan outlet.</p>
-                            <a href="../backend/laporan.php" class="btn btn-primary text-white mt-4 btn-sm fw-semibold">Buka Menu</a>
+                            <a href="laporan.php" class="btn btn-primary text-white mt-4 btn-sm fw-semibold">Buka Menu</a>
                         </div>
                     </div>
                 </div>

@@ -1,233 +1,6 @@
 <?php
 // Backend/transaksi.php
-require_once __DIR__ . '/components/koneksi.php';
-restrict_access(['admin', 'kasir']);
-
-// Cek apakah user sudah login
-if (!isset($_SESSION['user_id'])) {
-    header("Location: login.php?error=Silakan login terlebih dahulu!");
-    exit();
-}
-
-$nama_user = $_SESSION['nama'] ?? 'Administrator';
-$role_user = $_SESSION['role'] ?? 'admin';
-$id_outlet_user = $_SESSION['id_outlet'] ?? 1;
-
-// Ambil informasi nama outlet aktif user
-try {
-    $stmt_outlet = $pdo->prepare("SELECT nama FROM tb_outlet WHERE id = :id");
-    $stmt_outlet->execute(['id' => $id_outlet_user]);
-    $outlet_active = $stmt_outlet->fetch();
-    $nama_outlet = $outlet_active['nama'] ?? 'Outlet Utama';
-} catch (PDOException $e) {
-    $nama_outlet = 'Outlet Utama';
-}
-
-$pesan_sukses = '';
-$pesan_error = '';
-
-// Ambil parameter filter
-$periode = $_GET['periode'] ?? '';
-$tahun = $_GET['tahun'] ?? date('Y');
-$status_filter = $_GET['status'] ?? '';
-
-// Fungsi Bantuan untuk Pencatatan Activity Log ke Database
-function catat_log($pdo, $username, $aktivitas) {
-    try {
-        $stmt = $pdo->prepare("INSERT INTO activity_log (username, activity, created_at) VALUES (:username, :activity, NOW())");
-        $stmt->execute([
-            'username' => $username,
-            'activity' => $aktivitas
-        ]);
-    } catch (PDOException $e) {
-        // Abaikan jika tabel log mengalami kendala
-    }
-}
-
-// 1. Proses Tambah Transaksi Baru
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['tambah_transaksi'])) {
-    $id_outlet      = $id_outlet_user;
-    $id_member      = $_POST['id_member'];
-    $id_paket       = $_POST['id_paket'];
-    $tgl            = date('Y-m-d H:i:s');
-    $batas_waktu    = date('Y-m-d H:i:s', strtotime('+3 days'));
-    
-    $dibayar        = $_POST['dibayar']; 
-    $tgl_bayar      = ($dibayar === 'dibayar') ? date('Y-m-d H:i:s') : NULL;
-    
-    $qty            = floatval($_POST['qty']); 
-    $biaya_tambahan = floatval($_POST['biaya_tambahan'] ?? 0);
-    $diskon         = abs(floatval($_POST['diskon'] ?? 0)); 
-    $pajak          = floatval($_POST['pajak'] ?? 0);
-    $status         = 'baru'; 
-    $id_user        = $_SESSION['user_id'];
-
-    if (!empty($id_member) && !empty($id_paket) && $qty > 0) {
-        try {
-            $stmt_p = $pdo->prepare("SELECT harga FROM tb_paket WHERE id = :id");
-            $stmt_p->execute(['id' => $id_paket]);
-            $paket = $stmt_p->fetch();
-
-            if ($paket) {
-                $kode_invoice = 'TRX-' . date('YmdHis');
-
-                $stmt = $pdo->prepare("INSERT INTO tb_transaksi (id_outlet, kode_invoice, id_member, tgl, batas_waktu, tgl_bayar, biaya_tambahan, diskon, pajak, status, dibayar, id_user) VALUES (:id_outlet, :kode_invoice, :id_member, :tgl, :batas_waktu, :tgl_bayar, :biaya_tambahan, :diskon, :pajak, :status, :dibayar, :id_user)");
-                
-                $stmt->execute([
-                    'id_outlet'      => $id_outlet,
-                    'kode_invoice'   => $kode_invoice,
-                    'id_member'      => $id_member,
-                    'tgl'            => $tgl,
-                    'batas_waktu'    => $batas_waktu,
-                    'tgl_bayar'      => $tgl_bayar,
-                    'biaya_tambahan' => $biaya_tambahan,
-                    'diskon'         => $diskon,
-                    'pajak'          => $pajak,
-                    'status'         => $status,
-                    'dibayar'        => $dibayar,
-                    'id_user'        => $id_user
-                ]);
-
-                $id_transaksi_baru = $pdo->lastInsertId();
-
-                $stmt_detail = $pdo->prepare("INSERT INTO tb_detail_transaksi (id_transaksi, id_paket, qty, keterangan) VALUES (:id_transaksi, :id_paket, :qty, :keterangan)");
-                $stmt_detail->execute([
-                    'id_transaksi' => $id_transaksi_baru,
-                    'id_paket'     => $id_paket,
-                    'qty'          => $qty,
-                    'keterangan'   => 'Cucian masuk'
-                ]);
-
-                $pesan_sukses = "Transaksi berhasil disimpan dengan Invoice: <b>$kode_invoice</b>";
-                catat_log($pdo, $nama_user, "Menambahkan transaksi baru dengan invoice $kode_invoice");
-
-            } else {
-                $pesan_error = "Paket cucian tidak ditemukan!";
-            }
-        } catch (PDOException $e) {
-            $pesan_error = "Gagal menyimpan transaksi: " . $e->getMessage();
-        }
-    } else {
-        $pesan_error = "Member, paket, dan jumlah/berat wajib diisi dengan benar!";
-    }
-}
-
-// 2. Proses Edit / Update Transaksi
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['edit_transaksi'])) {
-    $id_transaksi   = $_POST['id_transaksi'];
-    $id_member      = $_POST['id_member'];
-    $id_paket       = $_POST['id_paket'];
-    $qty            = floatval($_POST['qty']);
-    $biaya_tambahan = floatval($_POST['biaya_tambahan'] ?? 0);
-    $diskon         = abs(floatval($_POST['diskon'] ?? 0));
-    $pajak          = floatval($_POST['pajak'] ?? 0);
-    $dibayar        = $_POST['dibayar'];
-    
-    $tgl_bayar_sql  = ($dibayar === 'dibayar') ? ", tgl_bayar = COALESCE(tgl_bayar, NOW())" : ", tgl_bayar = NULL";
-
-    try {
-        $stmt_up = $pdo->prepare("UPDATE tb_transaksi SET id_member = :id_member, biaya_tambahan = :biaya_tambahan, diskon = :diskon, pajak = :pajak, dibayar = :dibayar $tgl_bayar_sql WHERE id = :id");
-        $stmt_up->execute([
-            'id_member'      => $id_member,
-            'biaya_tambahan' => $biaya_tambahan,
-            'diskon'         => $diskon,
-            'pajak'          => $pajak,
-            'dibayar'        => $dibayar,
-            'id'             => $id_transaksi
-        ]);
-
-        $stmt_dt_up = $pdo->prepare("UPDATE tb_detail_transaksi SET id_paket = :id_paket, qty = :qty WHERE id_transaksi = :id_transaksi");
-        $stmt_dt_up->execute([
-            'id_paket'     => $id_paket,
-            'qty'          => $qty,
-            'id_transaksi' => $id_transaksi
-        ]);
-
-        $pesan_sukses = "Data transaksi berhasil diperbarui!";
-        catat_log($pdo, $nama_user, "Memperbarui data transaksi ID: $id_transaksi");
-
-    } catch (PDOException $e) {
-        $pesan_error = "Gagal memperbarui transaksi: " . $e->getMessage();
-    }
-}
-
-// 3. Proses Update Status Transaksi
-if (isset($_GET['ubah_status']) && isset($_GET['id'])) {
-    $id = $_GET['id'];
-    $status_baru = $_GET['ubah_status'];
-    try {
-        if ($status_baru === 'diambil') {
-            $stmt = $pdo->prepare("UPDATE tb_transaksi SET status = :status, dibayar = 'dibayar', tgl_bayar = NOW() WHERE id = :id");
-        } else {
-            $stmt = $pdo->prepare("UPDATE tb_transaksi SET status = :status WHERE id = :id");
-        }
-        $stmt->execute(['status' => $status_baru, 'id' => $id]);
-        
-        catat_log($pdo, $nama_user, "Mengubah status transaksi ID $id menjadi $status_baru");
-        header("Location: transaksi.php?pesan=status_sukses");
-        exit();
-    } catch (PDOException $e) {
-        $pesan_error = "Gagal memperbarui status transaksi.";
-    }
-}
-
-if (isset($_GET['pesan']) && $_GET['pesan'] == 'status_sukses') {
-    $pesan_sukses = "Status transaksi berhasil diperbarui!";
-}
-
-// Ambil data member, paket, dan transaksi dengan filter
-try {
-    $list_member = $pdo->query("SELECT * FROM tb_member ORDER BY nama ASC")->fetchAll();
-    $list_paket  = $pdo->query("SELECT tb_paket.*, tb_outlet.nama AS nama_outlet FROM tb_paket JOIN tb_outlet ON tb_paket.id_outlet = tb_outlet.id ORDER BY tb_paket.nama_paket ASC")->fetchAll();
-    
-    $query = "SELECT t.*, 
-              m.id AS id_member_asli,
-              COALESCE(m.nama, 'Member Umum / Terhapus') AS nama_member, 
-              COALESCE(u.nama, 'Administrator') AS nama_user, 
-              dt.id_paket AS id_paket_asli,
-              COALESCE(pk.nama_paket, 'Paket Manual') AS nama_paket, 
-              COALESCE(pk.harga, 0) AS harga_paket,
-              COALESCE(dt.qty, 1) AS qty
-              FROM tb_transaksi t
-              LEFT JOIN tb_member m ON t.id_member = m.id
-              LEFT JOIN tb_user u ON t.id_user = u.id
-              LEFT JOIN tb_detail_transaksi dt ON t.id = dt.id_transaksi
-              LEFT JOIN tb_paket pk ON dt.id_paket = pk.id WHERE 1=1";
-    
-    $params = [];
-
-    // Filter Status
-    if (!empty($status_filter)) {
-        $query .= " AND t.status = :status";
-        $params['status'] = $status_filter;
-    }
-
-    // Filter Periode 3 Bulan
-    if (!empty($periode)) {
-        $map_bulan = [
-            1 => ['-01-01', '-03-31'], // Januari - Maret
-            2 => ['-04-01', '-06-30'], // April - Juni
-            3 => ['-07-01', '-09-30'], // Juli - September
-            4 => ['-10-01', '-12-31']  // Oktober - Desember
-        ];
-        
-        if (isset($map_bulan[$periode])) {
-            $query .= " AND t.tgl BETWEEN :start_date AND :end_date";
-            $params['start_date'] = $tahun . $map_bulan[$periode][0] . ' 00:00:00';
-            $params['end_date'] = $tahun . $map_bulan[$periode][1] . ' 23:59:59';
-        }
-    }
-
-    $query .= " ORDER BY t.id DESC";
-    $stmt = $pdo->prepare($query);
-    $stmt->execute($params);
-    $list_transaksi = $stmt->fetchAll();
-
-} catch (PDOException $e) {
-    $list_member = [];
-    $list_paket  = [];
-    $list_transaksi = [];
-}
+require_once __DIR__ . '/pages/transaksi_proses.php';
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -253,49 +26,68 @@ try {
             font-family: 'Inter', sans-serif;
             background-color: #f8f9fa;
             overflow-x: hidden;
+            margin: 0;
         }
 
-        #sidebar {
+        #sidebar { 
+            width: 260px;
             min-width: 260px;
             max-width: 260px;
-            background-color: #ffffff;
-            border-right: 1px solid #ebd3d7;
-            min-height: 100vh;
+            background: #fff; 
+            border-right: 1px solid #ebd3d7; 
+            min-height: 100vh; 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            z-index: 100;
+            box-sizing: border-box;
         }
-
-        #sidebar .sidebar-brand {
-            padding: 1.5rem;
-            font-weight: 700;
-            color: var(--burgundy-primary);
-            border-bottom: 1px solid #f0e6e8;
-        }
-
-        #sidebar .nav-link {
-            color: #495057;
-            padding: 0.85rem 1.5rem;
-            font-weight: 500;
+        
+        #sidebar .nav-link { 
+            color: #495057; 
+            border-radius: 0; 
+            padding: 11px 24px;
+            font-size: 15px;
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+        
+        #sidebar .nav-link:hover, 
+        #sidebar .nav-link.active { 
+            background-color: var(--burgundy-light); 
+            color: var(--burgundy-primary); 
+            font-weight: 600; 
+            border-left: 4px solid var(--burgundy-primary); 
         }
 
-        #sidebar .nav-link:hover,
-        #sidebar .nav-link.active {
-            background-color: var(--burgundy-light);
-            color: var(--burgundy-primary);
-            border-left: 4px solid var(--burgundy-primary);
+        #content {
+            margin-left: 260px !important;
+            width: calc(100% - 260px) !important;
+            min-height: 100vh;
+            flex-grow: 1;
+            box-sizing: border-box;
+            margin-top: 0 !important;
+            padding-top: 0 !important;
         }
 
-        .navbar-top {
-            background-color: #ffffff;
-            border-bottom: 1px solid #ebd3d7;
-            padding: 1rem 2rem;
+        .custom-topbar {
+            height: 70px !important;
+            min-height: 70px !important;
+            max-height: 70px !important;
+            border-bottom: 1px solid #ebd3d7 !important;
+            box-shadow: none !important;
+            margin-bottom: 0 !important;
+            box-sizing: border-box !important;
+            display: flex !important;
+            align-items: center !important;
         }
 
-        .bg-burgundy-soft {
-            background-color: var(--burgundy-light);
-            color: var(--burgundy-primary);
+        .custom-topbar .container-fluid {
+            height: 70px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
         }
 
         .btn-burgundy {
@@ -319,77 +111,17 @@ try {
 <body>
 
     <div class="d-flex">
-        <!-- Sidebar -->
-        <nav id="sidebar" class="d-none d-md-block">
-            <div class="sidebar-brand d-flex align-items-center gap-2 fs-5">
-                <i class="bi bi-basket3-fill"></i> LaundryApp
-            </div>
-            <ul class="nav flex-column mt-3">
-                <li class="nav-item"><a href="dashboard.php" class="nav-link"><i class="bi bi-speedometer2 fs-5"></i> Dashboard</a></li>
-                <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
-                <li class="nav-item"><a href="outlet.php" class="nav-link"><i class="bi bi-shop fs-5"></i> Outlet</a></li>
-                <?php endif; ?>
-                <li class="nav-item"><a href="member.php" class="nav-link"><i class="bi bi-people fs-5"></i> Member</a></li>
-                <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
-                <li class="nav-item"><a href="paket.php" class="nav-link"><i class="bi bi-tag fs-5"></i> Paket Cucian</a></li>
-                <li class="nav-item"><a href="user.php" class="nav-link"><i class="bi bi-person-badge fs-5"></i> Pengguna / Kasir</a></li>
-                <?php endif; ?>
-                <li class="nav-item"><a href="transaksi.php" class="nav-link active"><i class="bi bi-cart-check fs-5"></i> Transaksi</a></li>
-                <li class="nav-item"><a href="laporan.php" class="nav-link"><i class="bi bi-file-earmark-text fs-5"></i> Laporan</a></li>
-                <li class="nav-item mt-4"><a href="logout.php" class="nav-link text-danger"><i class="bi bi-box-arrow-right fs-5"></i> Logout</a></li>
-            </ul>
-        </nav>
+        <!-- Sidebar dipanggil dari folder partials -->
+        <?php include __DIR__ . '/partials/sidebar.php'; ?>
 
         <!-- Main Wrapper -->
-        <div id="content" class="p-0 w-100">
-            <!-- Top Navbar -->
-             <nav class="navbar navbar-top navbar-expand mb-4">
-                <div class="container-fluid">
-                    <div class="d-flex align-items-center gap-2">
-                        <?php 
-                        $nama_outlet_aktif = get_nama_outlet_aktif($pdo);
-                        // Cek apakah user adalah admin, berikan opsi dropdown ganti outlet cepat
-                        if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): 
-                            $stmt_all_o = $pdo->query("SELECT * FROM tb_outlet ORDER BY nama ASC");
-                            $list_o = $stmt_all_o->fetchAll();
-                        ?>
-                            <div class="dropdown">
-                                <button class="btn btn-sm bg-burgundy-soft dropdown-toggle px-3 py-2 rounded-pill fw-semibold border-0" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <i class="bi bi-geo-alt-fill me-1"></i> <?= htmlspecialchars($nama_outlet_aktif); ?>
-                                </button>
-                                <ul class="dropdown-menu shadow-sm border-0 rounded-4 p-2">
-                                    <li><h6 class="dropdown-header small text-muted">Pindah Posisi Outlet:</h6></li>
-                                    <?php foreach ($list_o as $lo): ?>
-                                        <li>
-                                            <a class="dropdown-item rounded-2 py-2 <?= ($_SESSION['id_outlet'] == $lo['id']) ? 'active bg-danger text-white' : ''; ?>" href="ganti_outlet.php?id=<?= $lo['id']; ?>&redirect=<?= urlencode(basename($_SERVER['PHP_SELF'])); ?>">
-                                                <i class="bi bi-shop me-2"></i> <?= htmlspecialchars($lo['nama']); ?>
-                                            </a>
-                                        </li>
-                                    <?php endforeach; ?>
-                                </ul>
-                            </div>
-                        <?php else: ?>
-                            <!-- Jika kasir, tampilkan teks badge biasa sesuai lokasi tugasnya -->
-                            <span class="badge bg-burgundy-soft px-3 py-2 rounded-pill">
-                                <i class="bi bi-geo-alt-fill me-1"></i> <?= htmlspecialchars($nama_outlet_aktif); ?>
-                            </span>
-                        <?php endif; ?>
-                    </div>
-                    <div class="d-flex align-items-center gap-3">
-                        <div class="text-end">
-                            <span class="d-block fw-bold text-dark small"><?= htmlspecialchars($_SESSION['nama'] ?? 'Pengguna'); ?></span>
-                            <span class="badge bg-secondary text-uppercase" style="font-size: 10px;"><?= htmlspecialchars($_SESSION['role'] ?? 'kasir'); ?></span>
-                        </div>
-                        <div class="bg-burgundy-soft rounded-circle d-flex align-items-center justify-content-center fw-bold" style="width: 40px; height: 40px;">
-                            <?= strtoupper(substr($_SESSION['nama'] ?? 'P', 0, 1)); ?>
-                        </div>
-                    </div>
-                </div>
-            </nav>
+        <div id="content" class="p-0" style="background-color: #f8f9fa; min-height: 100vh;">
+            <!-- Topbar dipanggil dari folder partials -->
+            <?php include __DIR__ . '/partials/topbar.php'; ?>
 
             <!-- Page Content -->
-            <div class="container-fluid px-4">
-                <div class="d-flex justify-content-between align-items-center mb-4">
+            <div class="container-fluid px-4 py-3">
+                <div class="d-flex justify-content-between align-items-center mb-4 mt-2">
                     <div>
                         <h3 class="fw-bold text-dark">Manajemen Transaksi Kasir</h3>
                         <p class="text-muted mb-0">Input cucian masuk, edit rincian berat/diskon, atur progres pengerjaan.</p>
@@ -413,8 +145,8 @@ try {
                     </div>
                 <?php endif; ?>
 
-                <!-- Form Filter Rentang 3 Bulan & Status -->
-                <div class="card shadow-sm rounded-4 p-4 mb-4">
+                <!-- Form Filter -->
+                <div class="card shadow-sm rounded-4 p-4 mb-4 border-0">
                     <form method="GET" action="transaksi.php" class="row g-3 align-items-end bg-light p-3 rounded-4">
                         <div class="col-md-4">
                             <label class="form-label small fw-bold text-secondary">Periode 3 Bulan</label>
@@ -476,20 +208,6 @@ try {
                                             <td>
                                                 <span class="small d-block fw-bold"><?= htmlspecialchars($t['nama_paket']); ?></span>
                                                 <span class="text-muted" style="font-size: 12px;">Qty/Berat: <?= $t['qty']; ?></span>
-                                                
-                                                <?php if ($t['biaya_tambahan'] > 0 || $diskon_bersih > 0 || $t['pajak'] > 0): ?>
-                                                    <div class="text-secondary mt-1" style="font-size: 11px;">
-                                                        <?php if ($t['biaya_tambahan'] > 0): ?>
-                                                            <span class="text-success">+ Tambahan: Rp <?= number_format($t['biaya_tambahan'], 0, ',', '.'); ?></span><br>
-                                                        <?php endif; ?>
-                                                        <?php if ($diskon_bersih > 0): ?>
-                                                            <span class="text-danger">- Diskon: Rp <?= number_format($diskon_bersih, 0, ',', '.'); ?></span><br>
-                                                        <?php endif; ?>
-                                                        <?php if ($t['pajak'] > 0): ?>
-                                                            <span class="text-info">+ Pajak: Rp <?= number_format($t['pajak'], 0, ',', '.'); ?></span><br>
-                                                        <?php endif; ?>
-                                                    </div>
-                                                <?php endif; ?>
                                                 <div class="fw-bold text-dark mt-1" style="font-size: 12px;">
                                                     Total: Rp <?= number_format($grand_total, 0, ',', '.'); ?>
                                                 </div>
@@ -517,15 +235,13 @@ try {
                                             </td>
                                             <td>
                                                 <div class="d-flex gap-1">
-                                                    <!-- Tombol Edit Transaksi -->
                                                     <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-2" 
                                                         data-bs-toggle="modal" 
                                                         data-bs-target="#modalEditTransaksi<?= $t['id']; ?>" 
-                                                        title="Edit Berat, Diskon, Biaya Tambahan">
+                                                        title="Edit Transaksi">
                                                         <i class="bi bi-pencil-square"></i>
                                                     </button>
 
-                                                    <!-- Dropdown Ubah Status -->
                                                     <div class="dropdown">
                                                         <button class="btn btn-sm btn-outline-secondary dropdown-toggle rounded-pill px-3" type="button" data-bs-toggle="dropdown">
                                                             Status
@@ -541,7 +257,7 @@ try {
                                             </td>
                                         </tr>
 
-                                        <!-- Modal Edit Transaksi untuk Setiap Baris -->
+                                        <!-- Modal Edit Transaksi -->
                                         <div class="modal fade" id="modalEditTransaksi<?= $t['id']; ?>" tabindex="-1" aria-hidden="true">
                                             <div class="modal-dialog">
                                                 <div class="modal-content border-0 rounded-4 shadow">
@@ -574,7 +290,7 @@ try {
                                                                 </select>
                                                             </div>
                                                             <div class="mb-3">
-                                                                <label class="form-label fw-semibold small">Jumlah / Berat (Kg atau Pcs)</label>
+                                                                <label class="form-label fw-semibold small">Jumlah / Berat (Kg / Pcs)</label>
                                                                 <input type="number" step="0.01" min="0.01" class="form-control" name="qty" value="<?= $t['qty']; ?>" required>
                                                             </div>
                                                             <div class="row">
@@ -625,11 +341,19 @@ try {
         </div>
     </div>
 
-    <!-- Modal Tambah Transaksi Baru -->
+    <!-- Modal Tambah Transaksi Baru (Mengarah ke pages/transaksi_aksi.php) -->
     <div class="modal fade" id="modalTambahTransaksi" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content border-0 rounded-4 shadow">
-                <form action="" method="POST">
+                <!-- Action diarahkan ke file aksi terpisah -->
+                <form action="pages/transaksi_aksi.php" method="POST">
+                    <!-- Jika menggunakan token CSRF, pastikan fungsi generateCsrfToken() tersedia -->
+                    <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?? ''; ?>">
+                    <!-- Mengirimkan ID Outlet aktif user -->
+                    <input type="hidden" name="id_outlet" value="<?= $id_outlet_user; ?>">
+                    <!-- Generate kode invoice otomatis lewat form -->
+                    <input type="hidden" name="kode_invoice" value="TRX-<?= date('YmdHis'); ?>">
+
                     <div class="modal-header border-bottom-0 pb-0">
                         <h5 class="modal-title fw-bold text-dark">Input Transaksi Baru</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -657,31 +381,14 @@ try {
                             <label class="form-label fw-semibold small">Jumlah / Berat (Kg atau Pcs)</label>
                             <input type="number" step="0.01" min="0.01" class="form-control" name="qty" required placeholder="Contoh: 3.5">
                         </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label fw-semibold small">Biaya Tambahan (Rp)</label>
-                                <input type="number" min="0" class="form-control" name="biaya_tambahan" value="0" placeholder="0">
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label fw-semibold small">Diskon (Rp)</label>
-                                <input type="number" min="0" class="form-control" name="diskon" value="0" placeholder="0">
-                            </div>
-                        </div>
                         <div class="mb-3">
-                            <label class="form-label fw-semibold small">Pajak (Rp)</label>
-                            <input type="number" min="0" class="form-control" name="pajak" value="0" placeholder="0">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label fw-semibold small">Status Pembayaran Awal</label>
-                            <select name="dibayar" class="form-select" required>
-                                <option value="belum_dibayar">Belum Lunas (Bayar nanti saat diambil)</option>
-                                <option value="dibayar">Lunas (Bayar sekarang)</option>
-                            </select>
+                            <label class="form-label fw-semibold small">Keterangan / Catatan</label>
+                            <textarea class="form-control" name="keterangan" rows="2" placeholder="Catatan cucian masuk..."></textarea>
                         </div>
                     </div>
                     <div class="modal-footer border-top-0 pt-0">
                         <button type="button" class="btn btn-outline-secondary rounded-pill px-4" data-bs-dismiss="modal">Batal</button>
-                        <button type="submit" name="tambah_transaksi" class="btn btn-burgundy rounded-pill px-4">Proses Transaksi</button>
+                        <button type="submit" class="btn btn-burgundy rounded-pill px-4">Proses Transaksi</button>
                     </div>
                 </form>
             </div>
@@ -690,4 +397,5 @@ try {
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
+
 </html>
