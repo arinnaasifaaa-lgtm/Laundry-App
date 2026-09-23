@@ -41,8 +41,9 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['kasir', 'admi
         </div>
     </div>
 
+    <?php include 'navbar.php'; ?>
     <!-- header top / Navbar Kasir -->
-    <header class="navigation position-absolute w-100 bg-body-tertiary shadow border-bottom border-light border-opacity-10 rounded-bottom-3 rounded-bottom-sm-4">
+    <!-- <header class="navigation position-absolute w-100 bg-body-tertiary shadow border-bottom border-light border-opacity-10 rounded-bottom-3 rounded-bottom-sm-4">
         <nav class="navbar navbar-expand-xl" aria-label="Offcanvas navbar large">
             <div class="container py-1">
                 <a href="home.php" class="navbar-brand">
@@ -95,7 +96,7 @@ if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['kasir', 'admi
                 </div>
             </div>
         </nav>
-    </header>
+    </header> -->
 
     <!-- header body / Sambutan Kasir -->
     <div class="overflow-hidden position-relative">

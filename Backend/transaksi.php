@@ -90,6 +90,12 @@ require_once __DIR__ . '/pages/transaksi_proses.php';
             justify-content: space-between !important;
         }
 
+        /* TAMBAHAN: Kelas bg-burgundy-soft agar warna logo maps muncul */
+        .bg-burgundy-soft {
+            background-color: var(--burgundy-light);
+            color: var(--burgundy-primary);
+        }
+
         .btn-burgundy {
             background-color: var(--burgundy-primary);
             color: #fff;
@@ -341,17 +347,13 @@ require_once __DIR__ . '/pages/transaksi_proses.php';
         </div>
     </div>
 
-    <!-- Modal Tambah Transaksi Baru (Mengarah ke pages/transaksi_aksi.php) -->
+    <!-- Modal Tambah Transaksi Baru -->
     <div class="modal fade" id="modalTambahTransaksi" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content border-0 rounded-4 shadow">
-                <!-- Action diarahkan ke file aksi terpisah -->
                 <form action="pages/transaksi_aksi.php" method="POST">
-                    <!-- Jika menggunakan token CSRF, pastikan fungsi generateCsrfToken() tersedia -->
                     <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?? ''; ?>">
-                    <!-- Mengirimkan ID Outlet aktif user -->
                     <input type="hidden" name="id_outlet" value="<?= $id_outlet_user; ?>">
-                    <!-- Generate kode invoice otomatis lewat form -->
                     <input type="hidden" name="kode_invoice" value="TRX-<?= date('YmdHis'); ?>">
 
                     <div class="modal-header border-bottom-0 pb-0">

@@ -1,62 +1,6 @@
 <?php
-require_once __DIR__ . '/components/koneksi.php';
-restrict_access(['admin', 'kasir', 'owner']);
-
-if (!isset($_SESSION['user_id'])) {
-    header("Location: login.php?error=Silakan login terlebih dahulu!");
-    exit();
-}
-
-$nama_outlet_aktif = get_nama_outlet_aktif($pdo);
-$status =$_GET['status'] ?? '';
-$outlet =$_GET['id_outlet'] ?? '';
-$periode =$_GET['periode'] ?? '';
-$tahun =$_GET['tahun'] ?? date('Y');
-$tab =$_GET['tab'] ?? 'transaksi';
-
-try {
-    // Menggunakan kolom `tgl` sesuai dengan struktur database dari transaksi.php
-    $sql = "SELECT t.*, COALESCE(m.nama, 'Member Umum') AS nama_member, COALESCE(o.nama, 'Utama') AS nama_outlet_transaksi,
-            COALESCE(pk.nama_paket, 'Paket Manual') AS nama_paket, COALESCE(pk.harga, 0) AS harga_paket, COALESCE(dt.qty, 1) AS qty
-            FROM tb_transaksi t
-            LEFT JOIN tb_member m ON t.id_member = m.id
-            LEFT JOIN tb_outlet o ON t.id_outlet = o.id
-            LEFT JOIN tb_detail_transaksi dt ON t.id = dt.id_transaksi
-            LEFT JOIN tb_paket pk ON dt.id_paket = pk.id WHERE 1=1";
-    $params = [];
-
-    if (!empty($outlet)) {$sql .= " AND t.id_outlet = :outlet"; 
-        $params['outlet'] =$outlet; 
-    }
-    if (!empty($status)) {$sql .= " AND t.status = :status"; 
-        $params['status'] =$status; 
-    }
-    
-    // Filter Periode 3 Bulan menggunakan kolom `tgl`
-    if (!empty($periode)) {$map_bulan = [
-            1 => ['-01-01', '-03-31'], // Januari - Maret
-            2 => ['-04-01', '-06-30'], // April - Juni
-            3 => ['-07-01', '-09-30'], // Juli - September
-            4 => ['-10-01', '-12-31']  // Oktober - Desember
-        ];
-        
-        if (isset($map_bulan[$periode])) {$sql .= " AND t.tgl BETWEEN :start_date AND :end_date";
-            $params['start_date'] = $tahun .$map_bulan[$periode][0] . ' 00:00:00';$params['end_date'] = $tahun .$map_bulan[$periode][1] . ' 23:59:59';         }     }$stmt = $pdo->prepare($sql . " ORDER BY t.id DESC");
-    $stmt->execute($params);
-    $laporan_list =$stmt->fetchAll();
-
-    $total_omset = 0;
-    foreach ($laporan_list as$r) {
-        if ($r['dibayar'] === 'dibayar') {
-            $total_omset += (($r['harga_paket'] * $r['qty']) +$r['biaya_tambahan'] - $r['diskon'] +$r['pajak']);
-        }
-    }
-
-    $list_log =$pdo->query("SELECT * FROM activity_log ORDER BY id DESC LIMIT 50")->fetchAll();
-    $semua_outlet =$pdo->query("SELECT * FROM tb_outlet ORDER BY nama ASC")->fetchAll();
-} catch (PDOException $e) {
-    $laporan_list =$list_log = $semua_outlet = [];$total_omset = 0;
-}
+// Backend/laporan.php
+require_once __DIR__ . '/pages/laporan_proses.php';
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -71,7 +15,7 @@ try {
     
     <style>
         :root {
-            --burgundy: #800020;
+            --burgundy-primary: #800020;
             --burgundy-hover: #600018;
             --burgundy-light: #fcf1f3;
             --burgundy-border: #ebd3d7;
@@ -81,52 +25,86 @@ try {
             background-color: #f8f9fa;
             font-family: 'Inter', sans-serif;
             color: #333;
+            overflow-x: hidden;
+            margin: 0;
         }
 
-        #sidebar {
+        /* Pengaturan Sidebar */
+        #sidebar { 
             width: 260px;
-            min-height: 100vh;
-            background: #fff;
-            border-right: 1px solid var(--burgundy-border);
-            position: fixed;
-            top: 0;
-            left: 0;
+            min-width: 260px;
+            max-width: 260px;
+            background: #fff; 
+            border-right: 1px solid var(--burgundy-border); 
+            min-height: 100vh; 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
             z-index: 100;
+            box-sizing: border-box;
         }
-
-        .sidebar-brand {
-            padding: 1.5rem;
-            font-weight: 700;
-            color: var(--burgundy);
-            border-bottom: 1px solid #f0e6e8;
-        }
-
-        #sidebar .nav-link {
-            color: #495057;
-            padding: 0.75rem 1.5rem;
-            font-weight: 500;
+        
+        #sidebar .nav-link { 
+            color: #495057; 
+            border-radius: 0; 
+            padding: 11px 24px;
+            font-size: 15px;
+            font-family: 'Inter', sans-serif;
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            transition: all 0.2s;
+            text-decoration: none;
+            transition: all 0.2s ease-in-out;
+            border-left: 4px solid transparent;
         }
-
+        
         #sidebar .nav-link:hover, 
-        #sidebar .nav-link.active {
-            background-color: var(--burgundy-light);
-            color: var(--burgundy);
-            border-left: 4px solid var(--burgundy);
+        #sidebar .nav-link.active { 
+            background-color: var(--burgundy-light); 
+            color: var(--burgundy-primary); 
+            font-weight: 600; 
+            border-left: 4px solid var(--burgundy-primary); 
         }
 
-        .main-wrapper {
-            margin-left: 260px;
-            width: calc(100% - 260px);
+        #sidebar .nav-link:hover i,
+        #sidebar .nav-link.active i {
+            color: var(--burgundy-primary) !important;
         }
 
-        .navbar-top {
-            background: #fff;
-            border-bottom: 1px solid var(--burgundy-border);
-            padding: 0.8rem 2rem;
+        /* Pengaturan Area Konten Utama */
+        #content {
+            margin-left: 260px !important;
+            width: calc(100% - 260px) !important;
+            min-height: 100vh;
+            flex-grow: 1;
+            box-sizing: border-box;
+        }
+
+        /* PENGUNCI UTAMA TOPBAR: Supaya garis bawahnya menyambung lurus rata dengan sidebar */
+        .custom-topbar {
+            height: 70px !important;
+            min-height: 70px !important;
+            max-height: 70px !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+            border-bottom: 1px solid var(--burgundy-border) !important;
+            margin-top: 0 !important;
+            margin-left: 0 !important;
+            margin-bottom: 0 !important;
+            box-sizing: border-box !important;
+            display: flex !important;
+            align-items: center !important;
+        }
+
+        .custom-topbar .container-fluid {
+            height: 70px !important;
+            min-height: 70px !important;
+            max-height: 70px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            margin: 0 !important;
+            padding-left: 1.5rem !important;
+            padding-right: 1.5rem !important;
         }
 
         .card {
@@ -136,11 +114,11 @@ try {
 
         .bg-burgundy-soft {
             background-color: var(--burgundy-light);
-            color: var(--burgundy);
+            color: var(--burgundy-primary);
         }
 
         .btn-burgundy {
-            background-color: var(--burgundy);
+            background-color: var(--burgundy-primary);
             color: #fff;
             border: none;
         }
@@ -160,15 +138,15 @@ try {
         }
 
         .nav-pills .nav-link.active {
-            background-color: var(--burgundy) !important;
+            background-color: var(--burgundy-primary) !important;
             color: #fff !important;
-            border-color: var(--burgundy);
+            border-color: var(--burgundy-primary);
             box-shadow: 0 4px 12px rgba(128,0,32,0.2);
         }
 
         .table-custom th {
             background-color: var(--burgundy-light) !important;
-            color: var(--burgundy);
+            color: var(--burgundy-primary);
             font-weight: 600;
             border-bottom: none;
         }
@@ -179,76 +157,25 @@ try {
             .no-print {
                 display: none !important;
             }
-            .main-wrapper {
-                margin: 0;
-                width: 100%;
+            #content {
+                margin: 0 !important;
+                width: 100% !important;
             }
         }
     </style>
 </head>
 <body>
 <div class="d-flex">
-    <nav id="sidebar" class="d-none d-md-block">
-        <div class="sidebar-brand d-flex align-items-center gap-2 fs-5"><i class="bi bi-basket3-fill"></i> LaundryApp</div>
-        <ul class="nav flex-column mt-3 gap-1">
-            <?php if (in_array($_SESSION['role'], ['admin', 'kasir'])): ?><li><a href="dashboard.php" class="nav-link"><i class="bi bi-speedometer2 fs-5"></i> Dashboard</a></li><?php endif; ?>
-            <?php if ($_SESSION['role'] === 'admin'): ?><li><a href="outlet.php" class="nav-link"><i class="bi bi-shop fs-5"></i> Outlet</a></li><?php endif; ?>
-            <?php if (in_array($_SESSION['role'], ['admin', 'kasir'])): ?><li><a href="member.php" class="nav-link"><i class="bi bi-people fs-5"></i> Member</a></li><?php endif; ?>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
-                <li><a href="paket.php" class="nav-link"><i class="bi bi-tag fs-5"></i> Paket Cucian</a></li>
-                <li><a href="user.php" class="nav-link"><i class="bi bi-person-badge fs-5"></i> Pengguna / Kasir</a></li>
-            <?php endif; ?>
-            <?php if (in_array($_SESSION['role'], ['admin', 'kasir'])): ?><li><a href="transaksi.php" class="nav-link"><i class="bi bi-cart-check fs-5"></i> Transaksi</a></li><?php endif; ?>
-            <?php if (in_array($_SESSION['role'], ['admin', 'kasir', 'owner'])): ?><li><a href="laporan.php" class="nav-link active"><i class="bi bi-file-earmark-text fs-5"></i> Laporan</a></li><?php endif; ?>
-            <li class="mt-3"><a href="logout.php" class="nav-link text-danger"><i class="bi bi-box-arrow-right fs-5"></i> Logout</a></li>
-        </ul>
-    </nav>
-    <div class="main-wrapper">
-        <nav class="navbar navbar-top navbar-expand mb-4">
-                <div class="container-fluid">
-                    <div class="d-flex align-items-center gap-2">
-                        <?php 
-                        $nama_outlet_aktif = get_nama_outlet_aktif($pdo);
-                        // Cek apakah user adalah admin, berikan opsi dropdown ganti outlet cepat
-                        if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): 
-                            $stmt_all_o = $pdo->query("SELECT * FROM tb_outlet ORDER BY nama ASC");
-                            $list_o = $stmt_all_o->fetchAll();
-                        ?>
-                            <div class="dropdown">
-                                <button class="btn btn-sm bg-burgundy-soft dropdown-toggle px-3 py-2 rounded-pill fw-semibold border-0" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <i class="bi bi-geo-alt-fill me-1"></i> <?= htmlspecialchars($nama_outlet_aktif); ?>
-                                </button>
-                                <ul class="dropdown-menu shadow-sm border-0 rounded-4 p-2">
-                                    <li><h6 class="dropdown-header small text-muted">Pindah Posisi Outlet:</h6></li>
-                                    <?php foreach ($list_o as $lo): ?>
-                                        <li>
-                                            <a class="dropdown-item rounded-2 py-2 <?= ($_SESSION['id_outlet'] == $lo['id']) ? 'active bg-danger text-white' : ''; ?>" href="ganti_outlet.php?id=<?= $lo['id']; ?>&redirect=<?= urlencode(basename($_SERVER['PHP_SELF'])); ?>">
-                                                <i class="bi bi-shop me-2"></i> <?= htmlspecialchars($lo['nama']); ?>
-                                            </a>
-                                        </li>
-                                    <?php endforeach; ?>
-                                </ul>
-                            </div>
-                        <?php else: ?>
-                            <!-- Jika kasir, tampilkan teks badge biasa sesuai lokasi tugasnya -->
-                            <span class="badge bg-burgundy-soft px-3 py-2 rounded-pill">
-                                <i class="bi bi-geo-alt-fill me-1"></i> <?= htmlspecialchars($nama_outlet_aktif); ?>
-                            </span>
-                        <?php endif; ?>
-                    </div>
-                    <div class="d-flex align-items-center gap-3">
-                        <div class="text-end">
-                            <span class="d-block fw-bold text-dark small"><?= htmlspecialchars($_SESSION['nama'] ?? 'Pengguna'); ?></span>
-                            <span class="badge bg-secondary text-uppercase" style="font-size: 10px;"><?= htmlspecialchars($_SESSION['role'] ?? 'kasir'); ?></span>
-                        </div>
-                        <div class="bg-burgundy-soft rounded-circle d-flex align-items-center justify-content-center fw-bold" style="width: 40px; height: 40px;">
-                            <?= strtoupper(substr($_SESSION['nama'] ?? 'P', 0, 1)); ?>
-                        </div>
-                    </div>
-                </div>
-            </nav>
-        <div class="container-fluid px-4 pb-5">
-            <div class="d-flex justify-content-between align-items-center mb-4">
+    <!-- Memanggil Sidebar dari folder partials -->
+    <?php include __DIR__ . '/partials/sidebar.php'; ?>
+
+    <!-- Main Wrapper -->
+    <div id="content" class="p-0" style="background-color: #f8f9fa; min-height: 100vh;">
+        <!-- Memanggil Topbar dari folder partials -->
+        <?php include __DIR__ . '/partials/topbar.php'; ?>
+
+        <div class="container-fluid px-4 py-3">
+            <div class="d-flex justify-content-between align-items-center mb-4 mt-2">
                 <div>
                     <h3 class="fw-bold text-dark mb-1">Pusat Laporan & Aktivitas</h3>
                     <p class="text-muted small mb-0">Pantau rekapitulasi transaksi dan riwayat aktivitas sistem per rentang 3 bulan.</p>
@@ -285,7 +212,7 @@ try {
                             <label class="form-label small fw-bold text-secondary">Filter Outlet</label>
                             <select name="id_outlet" class="form-select rounded-pill border-0 shadow-sm">
                                 <option value="">Semua Outlet</option>
-                                <?php foreach ($semua_outlet as$o): ?>
+                                <?php foreach ($semua_outlet as $o): ?>
                                     <option value="<?= $o['id']; ?>" <?= $outlet == $o['id'] ? 'selected' : ''; ?>><?= htmlspecialchars($o['nama']); ?></option>
                                 <?php endforeach; ?>
                             </select>
@@ -331,8 +258,8 @@ try {
                             </thead>
                             <tbody>
                                 <?php if (count($laporan_list) > 0): ?>
-                                    <?php $no = 1; foreach ($laporan_list as$row): 
-                                        $gt = (($row['harga_paket'] * $row['qty']) +$row['biaya_tambahan'] - $row['diskon'] +$row['pajak']); ?>
+                                    <?php $no = 1; foreach ($laporan_list as $row): 
+                                        $gt = (($row['harga_paket'] * $row['qty']) + $row['biaya_tambahan'] - $row['diskon'] + $row['pajak']); ?>
                                         <tr>
                                             <td class="text-muted"><?= $no++; ?></td>
                                             <td><code class="fw-bold text-dark"><?= htmlspecialchars($row['kode_invoice']); ?></code></td>
@@ -371,7 +298,7 @@ try {
                             </thead>
                             <tbody>
                                 <?php if (count($list_log) > 0): ?>
-                                    <?php foreach ($list_log as$log): ?>
+                                    <?php foreach ($list_log as $log): ?>
                                         <tr>
                                             <td class="text-muted">#<?= $log['id']; ?></td>
                                             <td><span class="badge bg-burgundy-soft px-3 py-2"><i class="bi bi-person-fill me-1"></i> <?= htmlspecialchars($log['username']); ?></span></td>

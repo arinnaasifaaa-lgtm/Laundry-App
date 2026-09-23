@@ -129,9 +129,10 @@ try {
 </head>
 
 <body>
+     <?php include 'navbar.php'; ?>
 
     <!-- Navbar Atas Ala Template Frontend -->
-    <header class="navigation position-sticky top-0 w-100 bg-body-tertiary shadow-sm border-bottom z-3">
+    <!-- <header class="navigation position-sticky top-0 w-100 bg-body-tertiary shadow-sm border-bottom z-3">
         <nav class="navbar navbar-expand-xl" aria-label="Offcanvas navbar large">
             <div class="container py-1">
                 <a href="home.php" class="navbar-brand">
@@ -184,7 +185,7 @@ try {
                 </div>
             </div>
         </nav>
-    </header>
+    </header> -->
 
     <!-- Konten Utama Halaman Member -->
     <div class="container py-5">
