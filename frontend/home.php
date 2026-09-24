@@ -1,205 +1,182 @@
 <?php
-// Hubungkan ke file koneksi dengan huruf B besar pada folder Backend
-require_once __DIR__ . '/../Backend/components/koneksi.php';
+// Pastikan session sudah aktif
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
-// Cek apakah kasir sudah login
-if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['kasir', 'admin'])) {
-    header("Location: ../backend/login.php");
-    exit;
+// Sesuaikan jalur folder koneksi database kamu
+require_once __DIR__ . '/../Backend/components/koneksi.php'; // atau sesuaikan path-nya
+
+// 1. Ambil data statistik ringkasan
+try {
+    $total_pelanggan = $pdo->query("SELECT COUNT(*) FROM tb_member")->fetchColumn();
+    $cucian_diproses = $pdo->query("SELECT COUNT(*) FROM tb_transaksi WHERE status = 'proses' OR status = 'baru'")->fetchColumn();
+    $cucian_siap     = $pdo->query("SELECT COUNT(*) FROM tb_transaksi WHERE status = 'selesai'")->fetchColumn();
+} catch (PDOException $e) {
+    $total_pelanggan = 0;
+    $cucian_diproses = 0;
+    $cucian_siap = 0;
+}
+
+// 2. Ambil riwayat transaksi terbaru
+try {
+    $query = "SELECT t.*, 
+             COALESCE(m.nama, 'Member Umum / Terhapus') AS nama_member, 
+             COALESCE(u.nama, 'Administrator') AS nama_user, 
+             COALESCE(pk.nama_paket, 'Paket Manual') AS nama_paket, 
+             COALESCE(pk.harga, 0) AS harga_paket,
+             COALESCE(dt.qty, 1) AS qty
+             FROM tb_transaksi t
+             LEFT JOIN tb_member m ON t.id_member = m.id
+             LEFT JOIN tb_user u ON t.id_user = u.id
+             LEFT JOIN tb_detail_transaksi dt ON t.id = dt.id_transaksi
+             LEFT JOIN tb_paket pk ON dt.id_paket = pk.id
+             ORDER BY t.id DESC LIMIT 5";
+    $list_transaksi = $pdo->query($query)->fetchAll();
+} catch (PDOException $e) {
+    $list_transaksi = [];
 }
 ?>
-<!doctype html>
-<html lang="en" dir="ltr" data-bs-theme="auto">
 
+<!DOCTYPE html>
+<html lang="id">
 <head>
-    <script src="./assets/js/color-modes.js"></script>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Dashboard Kasir - Lumiere Laundry</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Kasir - LaundryApp</title>
+    <!-- Masukkan link CSS Bootstrap / AdminLTE / style project kamu di sini -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
 
-    <link rel="apple-touch-icon" sizes="180x180" href="./assets/logo/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="./assets/logo/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="./assets/logo/favicon-16x16.png">
-    <link rel="icon" href="./assets/logo/favicon.ico">
-    <link rel="manifest" href="./assets/logo/site.webmanifest">
-
-    <!-- Stylesheets -->
-    <link rel="stylesheet" href="./assets/libraries/glide/css/glide.core.min.css">
-    <link rel="stylesheet" href="./assets/libraries/aos/aos.css">
-    <link rel="stylesheet" href="./assets/css/main.min.css">
-    <link rel="stylesheet" href="./assets/css/style.css">
-    <!-- FontAwesome untuk Icon Kasir -->
-    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.4/css/all.css">
+    <link rel="icon" type="image/jpeg" href="../Backend/img/loundryku.jpg">
 </head>
+<body class="bg-light">
 
-<body>
+   <?php include 'navbar.php'; ?>
 
-    <!-- loader-wrapper -->
-    <div class="loader-wrapper">
-        <div class="spinner-border text-primary p-5" role="status">
-            <span class="visually-hidden">Loading...</span>
+
+    <!-- Navbar Atas (Opsional, kalau navbar tetap ingin dipakai) -->
+    <!-- (Sesuaikan navbar yang sudah ada di project kamu di sini) -->
+
+    <!-- Konten Utama Dashboard Saja -->
+    <div class="container py-4">
+        
+        <!-- Header Judul -->
+        <div class="mb-4">
+            <h3 class="fw-bold text-dark">Dashboard Operasional</h3>
+            <p class="text-muted mb-0">Pantau status cucian, member, dan transaksi laundry di sini.</p>
         </div>
+
+        <!-- Statistik Cards -->
+        <div class="row g-4 mb-4">
+            <div class="col-md-4">
+                <div class="card stat-card p-3 border-0 shadow-sm rounded-4 bg-white">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="bg-light p-3 rounded-4 fs-4 text-primary">
+                            <i class="bi bi-people-fill"></i>
+                        </div>
+                        <div>
+                            <span class="text-muted small d-block fw-semibold">Total Pelanggan</span>
+                            <h3 class="fw-bold mb-0 text-dark"><?= $total_pelanggan; ?></h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card p-3 border-0 shadow-sm rounded-4 bg-white">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="bg-light p-3 rounded-4 fs-4 text-warning">
+                            <i class="bi bi-arrow-repeat"></i>
+                        </div>
+                        <div>
+                            <span class="text-muted small d-block fw-semibold">Cucian Diproses</span>
+                            <h3 class="fw-bold mb-0 text-dark"><?= $cucian_diproses; ?></h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card stat-card p-3 border-0 shadow-sm rounded-4 bg-white">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="bg-light p-3 rounded-4 fs-4 text-success">
+                            <i class="bi bi-check-circle-fill"></i>
+                        </div>
+                        <div>
+                            <span class="text-muted small d-block fw-semibold">Selesai / Siap Diambil</span>
+                            <h3 class="fw-bold mb-0 text-dark"><?= $cucian_siap; ?></h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabel Riwayat Transaksi Terbaru -->
+        <div class="card border-0 shadow-sm rounded-4 p-4 mb-4 bg-white">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-bold text-dark mb-0"><i class="bi bi-clock-history me-2 text-secondary"></i>Riwayat Transaksi Terbaru</h5>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th class="py-3 ps-3">#</th>
+                            <th class="py-3">Invoice</th>
+                            <th class="py-3">Member</th>
+                            <th class="py-3">Paket & Rincian Harga</th>
+                            <th class="py-3">Tgl Masuk</th>
+                            <th class="py-3">Status Cucian</th>
+                            <th class="py-3">Pembayaran</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (count($list_transaksi) > 0): ?>
+                            <?php $no = 1; foreach ($list_transaksi as $t): 
+                                $subtotal = ($t['harga_paket'] * $t['qty']);
+                                $grand_total = $subtotal + $t['biaya_tambahan'] - $t['diskon'] + $t['pajak'];
+                            ?>
+                                <tr>
+                                    <td class="ps-3"><?= $no++; ?></td>
+                                    <td><code class="fw-bold text-danger"><?= htmlspecialchars($t['kode_invoice']); ?></code></td>
+                                    <td><?= htmlspecialchars($t['nama_member']); ?></td>
+                                    <td>
+                                        <span class="d-block fw-bold"><?= htmlspecialchars($t['nama_paket']); ?></span>
+                                        <span class="text-muted" style="font-size: 12px;">Qty/Berat: <?= $t['qty']; ?></span>
+                                        <div class="text-dark mt-1" style="font-size: 12px;">
+                                            Total: Rp <?= number_format($grand_total, 0, ',', '.'); ?>
+                                        </div>
+                                    </td>
+                                    <td style="font-size: 13px;"><?= htmlspecialchars($t['tgl']); ?></td>
+                                    <td>
+                                        <span class="badge bg-secondary text-uppercase" style="font-size: 10px;">
+                                            <?= htmlspecialchars($t['status']); ?>
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <?php if ($t['dibayar'] === 'dibayar'): ?>
+                                            <span class="badge bg-success text-uppercase" style="font-size: 10px;">LUNAS</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-danger text-uppercase" style="font-size: 10px;">BELUM LUNAS</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <tr>
+                                <td colspan="7" class="text-center text-muted py-4">Belum ada data riwayat transaksi.</td>
+                            </tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
     </div>
-
-    <?php include 'navbar.php'; ?>
-    <!-- header top / Navbar Kasir -->
-    <!-- <header class="navigation position-absolute w-100 bg-body-tertiary shadow border-bottom border-light border-opacity-10 rounded-bottom-3 rounded-bottom-sm-4">
-        <nav class="navbar navbar-expand-xl" aria-label="Offcanvas navbar large">
-            <div class="container py-1">
-                <a href="home.php" class="navbar-brand">
-                    <img src="./assets/logo/logo.png" height="40" alt="logo">
-                </a>
-
-                <button class="navbar-toggler ms-auto" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasNavbar2" aria-controls="offcanvasNavbar2" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-
-                <div class="offcanvas offcanvas-end border-0 rounded-start-0 rounded-start-sm-4" tabindex="-1" id="offcanvasNavbar2" aria-labelledby="offcanvasNavbar2Label">
-                    <div class="offcanvas-header" style="padding: 2rem 2rem 1.5rem 2rem;">
-                        <h5 class="offcanvas-title m-0" id="offcanvasNavbar2Label">
-                            <a class="navbar-brand" href="home.php">
-                                <img src="./assets/logo/logo.png" height="32" alt="logo">
-                            </a>
-                        </h5>
-                        <button type="button" class="btn-close text-body-emphasis" data-bs-dismiss="offcanvas" aria-label="Close"></button>
-                    </div>
-
-                    <div class="offcanvas-body">
-                        <ul class="navbar-nav align-items-xl-center flex-grow-1 column-gap-4 row-gap-4 row-gap-xl-2 ms-auto">
-                            <li class="nav-item">
-                                <a href="home.php" class="px-3 text-body-emphasis bg-body-secondary-hover nav-link rounded-3 text-base leading-6 fw-semibold active" aria-current="page">
-                                    Beranda
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="member.php" class="px-3 text-body-emphasis bg-body-secondary-hover nav-link rounded-3 text-base leading-6 fw-semibold">
-                                    Registrasi Member
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="transaksi.php" class="px-3 text-body-emphasis bg-body-secondary-hover nav-link rounded-3 text-base leading-6 fw-semibold">
-                                    Entri Transaksi
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="laporan.php" class="px-3 text-body-emphasis bg-body-secondary-hover nav-link rounded-3 text-base leading-6 fw-semibold">
-                                    Generate Laporan
-                                </a>
-                            </li>
-                            <li class="nav-item ms-xl-3">
-                                <a href="../backend/logout.php" class="btn btn-danger text-white btn-sm px-3 rounded-pill">
-                                    <i class="fas fa-sign-out-alt me-1"></i> Logout
-                                </a>
-                            </li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </nav>
-    </header> -->
-
-    <!-- header body / Sambutan Kasir -->
-    <div class="overflow-hidden position-relative">
-        <img src="./assets/img/bg/kasirgambar.jpg" class="position-absolute z-n1 top-0 h-100 w-100 object-fit-cover" alt="Laundry Background">
-        <div class="overlay position-absolute z-n1 top-0 h-100 w-100 bg-dark"
-            style="opacity: 0.85; mix-blend-mode: multiply; filter: contrast(1.15) brightness(0.85);">
-        </div>
-
-        <div class="container">
-            <div class="min-vh-100 row align-items-center">
-                <div class="col-12 col-xl-10 mx-auto text-center text-xl-start">
-                    <div class="pt-9 pt-md-10 pt-xl-11 pb-7 pb-md-8 pb-xl-9">
-                        <div class="mt-4 pt-2">
-                            <h1 class="m-0 text-white tracking-tight text-5xl fw-bold" data-aos="fade" data-aos-duration="2000">
-                                Selamat Datang, <?= htmlspecialchars($_SESSION['nama'] ?? 'Kasir'); ?>!
-                            </h1>
-                            <p class="m-0 mt-4 text-white text-lg leading-8" data-aos="fade" data-aos-duration="2500">
-                                Panel Sistem Kasir Lumiere Laundry. Kelola data pelanggan, input cucian masuk, dan cetak laporan dengan cepat dan mudah.
-                            </p>
-                            <div class="mt-4 pt-3 d-flex align-items-center justify-content-center justify-content-xl-start column-gap-3" data-aos="fade" data-aos-duration="3000">
-                                <a href="transaksi.php" class="btn btn-lg btn-primary text-white text-sm fw-semibold">
-                                    <i class="fa fa-receipt me-2"></i> Mulai Transaksi
-                                </a>
-                                <a href="member.php" class="btn btn-lg btn-outline-light text-sm fw-semibold">
-                                    <i class="fa fa-user-plus me-2"></i> Daftar Member
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Menu Pintas Fitur Kasir -->
-    <div class="overflow-hidden py-7 py-sm-8 py-xl-9 bg-body-tertiary">
-        <div class="container">
-            <div class="mx-auto max-w-2xl text-center mb-5">
-                <h2 class="m-0 text-primary-emphasis text-base leading-7 fw-semibold">Menu Utama Kasir</h2>
-                <p class="m-0 mt-2 text-body-emphasis text-4xl tracking-tight fw-bold">Pilih Layanan Sistem</p>
-            </div>
-            <div class="row row-cols-1 row-cols-xl-3 gy-5 gx-xl-4 justify-content-center">
-                
-                <!-- Card 1: Member -->
-                <div class="col">
-                    <div class="card h-100 border-0 shadow-sm p-4 text-center rounded-4 bg-body">
-                        <div class="card-body">
-                            <div class="mb-3 text-primary"><i class="fa fa-user-plus fa-3x"></i></div>
-                            <h3 class="card-title text-body-emphasis text-lg fw-semibold">Registrasi Member</h3>
-                            <p class="text-body-secondary text-sm mt-3">Daftarkan pelanggan baru ke sistem sebelum memproses transaksi cucian.</p>
-                            <a href="member.php" class="btn btn-primary text-white mt-4 btn-sm fw-semibold">Buka Menu</a>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Card 2: Transaksi -->
-                <div class="col">
-                    <div class="card h-100 border-0 shadow-sm p-4 text-center rounded-4 bg-body">
-                        <div class="card-body">
-                            <div class="mb-3 text-primary"><i class="fa fa-receipt fa-3x"></i></div>
-                            <h3 class="card-title text-body-emphasis text-lg fw-semibold">Entri Transaksi</h3>
-                            <p class="text-body-secondary text-sm mt-3">Input data cucian masuk, pilih paket laundry, dan perbarui status pengerjaan.</p>
-                            <a href="transaksi.php" class="btn btn-primary text-white mt-4 btn-sm fw-semibold">Buka Menu</a>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Card 3: Laporan -->
-                <div class="col">
-                    <div class="card h-100 border-0 shadow-sm p-4 text-center rounded-4 bg-body">
-                        <div class="card-body">
-                            <div class="mb-3 text-primary"><i class="fa fa-file-invoice-dollar fa-3x"></i></div>
-                            <h3 class="card-title text-body-emphasis text-lg fw-semibold">Generate Laporan</h3>
-                            <p class="text-body-secondary text-sm mt-3">Cetak rekapitulasi data transaksi keuangan harian maupun bulanan outlet.</p>
-                            <a href="laporan.php" class="btn btn-primary text-white mt-4 btn-sm fw-semibold">Buka Menu</a>
-                        </div>
-                    </div>
-                </div>
-
-            </div>
-        </div>
-    </div>
-
     <!-- Footer sederhana -->
     <footer class="py-4 bg-body border-top text-center text-body-secondary text-sm">
         <div class="container">
-            <p class="mb-0">© <?= date('Y'); ?> Freshen Laundry Kasir System.</p>
+            <p class="mb-0">© <?= date('Y'); ?> Lumiere Laundry.</p>
         </div>
     </footer>
 
-    <!-- Back to top button -->
-    <button type="button" class="btn btn-primary btn-back-to-top rounded-circle justify-content-center align-items-center p-2 text-white">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-caret-up-fill" viewBox="0 0 16 16">
-            <path d="m7.247 4.86-4.796 5.481c-.566.647-.106 1.659.753 1.659h9.592a1 1 0 0 0 .753-1.659l-4.796-5.48a1 1 0 0 0-1.506 0z" />
-        </svg>
-    </button>
-
-    <!-- Bootstrap JavaScript & Scripts -->
-    <script src="./assets/libraries/bootstrap/js/bootstrap.bundle.min.js"></script>
-    <script src="./assets/libraries/glide/glide.min.js"></script>
-    <script src="./assets/libraries/aos/aos.js"></script>
-    <script src="./assets/js/scripts.js"></script>
-
 </body>
-
 </html>

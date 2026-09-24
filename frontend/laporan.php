@@ -93,6 +93,8 @@ try {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
+    <link rel="icon" type="image/jpeg" href="../Backend/img/loundryku.jpg">
+
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -299,6 +301,13 @@ try {
             </div>
         </div>
     </div>
+
+    <!-- Footer sederhana -->
+    <footer class="py-4 bg-body border-top text-center text-body-secondary text-sm">
+        <div class="container">
+            <p class="mb-0">© <?= date('Y'); ?> Lumiere Laundry.</p>
+        </div>
+    </footer>
 
     <!-- Scripts Bootstrap & Template -->
     <script src="./assets/libraries/bootstrap/js/bootstrap.bundle.min.js"></script>

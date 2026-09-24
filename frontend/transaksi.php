@@ -31,6 +31,12 @@ $periode = $_GET['periode'] ?? '';
 $tahun = $_GET['tahun'] ?? date('Y');
 $status_filter = $_GET['status'] ?? '';
 
+// Konfigurasi Pagination
+$limit = 5; // Jumlah data per halaman
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$page = max($page, 1);
+$offset = ($page - 1) * $limit;
+
 // Fungsi Bantuan untuk Pencatatan Activity Log ke Database
 function catat_log($pdo, $username, $aktivitas) {
     try {
@@ -175,30 +181,18 @@ if (isset($_GET['pesan']) && $_GET['pesan'] == 'status_sukses') {
     $pesan_sukses = "Status transaksi berhasil diperbarui!";
 }
 
-// Ambil data member, paket, dan transaksi dengan filter
+// Ambil data member, paket, dan transaksi dengan filter serta pagination
 try {
     $list_member = $pdo->query("SELECT * FROM tb_member ORDER BY nama ASC")->fetchAll();
     $list_paket  = $pdo->query("SELECT tb_paket.*, tb_outlet.nama AS nama_outlet FROM tb_paket JOIN tb_outlet ON tb_paket.id_outlet = tb_outlet.id ORDER BY tb_paket.nama_paket ASC")->fetchAll();
     
-    $query = "SELECT t.*, 
-              m.id AS id_member_asli,
-              COALESCE(m.nama, 'Member Umum / Terhapus') AS nama_member, 
-              COALESCE(u.nama, 'Administrator') AS nama_user, 
-              dt.id_paket AS id_paket_asli,
-              COALESCE(pk.nama_paket, 'Paket Manual') AS nama_paket, 
-              COALESCE(pk.harga, 0) AS harga_paket,
-              COALESCE(dt.qty, 1) AS qty
-              FROM tb_transaksi t
-              LEFT JOIN tb_member m ON t.id_member = m.id
-              LEFT JOIN tb_user u ON t.id_user = u.id
-              LEFT JOIN tb_detail_transaksi dt ON t.id = dt.id_transaksi
-              LEFT JOIN tb_paket pk ON dt.id_paket = pk.id WHERE 1=1";
-    
+    // Query dasar untuk kondisi filter
+    $where_sql = " WHERE 1=1";
     $params = [];
 
     // Filter Status
     if (!empty($status_filter)) {
-        $query .= " AND t.status = :status";
+        $where_sql .= " AND t.status = :status";
         $params['status'] = $status_filter;
     }
 
@@ -212,21 +206,48 @@ try {
         ];
         
         if (isset($map_bulan[$periode])) {
-            $query .= " AND t.tgl BETWEEN :start_date AND :end_date";
+            $where_sql .= " AND t.tgl BETWEEN :start_date AND :end_date";
             $params['start_date'] = $tahun . $map_bulan[$periode][0] . ' 00:00:00';
             $params['end_date'] = $tahun . $map_bulan[$periode][1] . ' 23:59:59';
         }
     }
 
-    $query .= " ORDER BY t.id DESC";
+    // Hitung total data sesuai filter untuk pagination
+    $stmt_count = $pdo->prepare("SELECT COUNT(*) FROM tb_transaksi t" . $where_sql);
+    $stmt_count->execute($params);
+    $total_data = $stmt_count->fetchColumn();
+    $total_pages = ceil($total_data / $limit);
+
+    // Ambil data transaksi dengan LIMIT dan OFFSET
+    $query = "SELECT t.*, 
+              m.id AS id_member_asli,
+              COALESCE(m.nama, 'Member Umum / Terhapus') AS nama_member, 
+              COALESCE(u.nama, 'Administrator') AS nama_user, 
+              dt.id_paket AS id_paket_asli,
+              COALESCE(pk.nama_paket, 'Paket Manual') AS nama_paket, 
+              COALESCE(pk.harga, 0) AS harga_paket,
+              COALESCE(dt.qty, 1) AS qty
+              FROM tb_transaksi t
+              LEFT JOIN tb_member m ON t.id_member = m.id
+              LEFT JOIN tb_user u ON t.id_user = u.id
+              LEFT JOIN tb_detail_transaksi dt ON t.id = dt.id_transaksi
+              LEFT JOIN tb_paket pk ON dt.id_paket = pk.id" 
+              . $where_sql . " ORDER BY t.id DESC LIMIT :limit OFFSET :offset";
+    
     $stmt = $pdo->prepare($query);
-    $stmt->execute($params);
+    foreach ($params as $key => $val) {
+        $stmt->bindValue(':' . $key, $val);
+    }
+    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+    $stmt->execute();
     $list_transaksi = $stmt->fetchAll();
 
 } catch (PDOException $e) {
     $list_member = [];
     $list_paket  = [];
     $list_transaksi = [];
+    $total_pages = 1;
 }
 ?>
 <!DOCTYPE html>
@@ -246,7 +267,7 @@ try {
     <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.4/css/all.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-
+    <link rel="icon" type="image/jpeg" href="../Backend/img/loundryku.jpg">
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -262,62 +283,6 @@ try {
 
 <body>
      <?php include 'navbar.php'; ?>
-
-    <!-- Navbar Atas Ala Template Frontend -->
-    <!-- <header class="navigation position-sticky top-0 w-100 bg-body-tertiary shadow-sm border-bottom z-3">
-        <nav class="navbar navbar-expand-xl" aria-label="Offcanvas navbar large">
-            <div class="container py-1">
-                <a href="home.php" class="navbar-brand">
-                    <img src="./assets/logo/logo.png" height="40" alt="logo">
-                </a>
-
-                <button class="navbar-toggler ms-auto" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasNavbar2" aria-controls="offcanvasNavbar2" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-
-                <div class="offcanvas offcanvas-end border-0 rounded-start-0" tabindex="-1" id="offcanvasNavbar2" aria-labelledby="offcanvasNavbar2Label">
-                    <div class="offcanvas-header" style="padding: 2rem 2rem 1.5rem 2rem;">
-                        <h5 class="offcanvas-title m-0" id="offcanvasNavbar2Label">
-                            <a class="navbar-brand" href="home.php">
-                                <img src="./assets/logo/logo.png" height="32" alt="logo">
-                            </a>
-                        </h5>
-                        <button type="button" class="btn-close text-body-emphasis" data-bs-dismiss="offcanvas" aria-label="Close"></button>
-                    </div>
-
-                    <div class="offcanvas-body">
-                        <ul class="navbar-nav align-items-xl-center flex-grow-1 column-gap-4 row-gap-4 row-gap-xl-2 ms-auto">
-                            <li class="nav-item">
-                                <a href="home.php" class="px-3 text-body-emphasis bg-body-secondary-hover nav-link rounded-3 text-base leading-6 fw-semibold">
-                                    Beranda
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="member.php" class="px-3 text-body-emphasis bg-body-secondary-hover nav-link rounded-3 text-base leading-6 fw-semibold">
-                                    Registrasi Member
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="transaksi.php" class="px-3 text-body-emphasis bg-body-secondary-hover nav-link rounded-3 text-base leading-6 fw-semibold active" aria-current="page">
-                                    Entri Transaksi
-                                </a>
-                            </li>
-                            <li class="nav-item">
-                                <a href="laporan.php" class="px-3 text-body-emphasis bg-body-secondary-hover nav-link rounded-3 text-base leading-6 fw-semibold">
-                                    Generate Laporan
-                                </a>
-                            </li>
-                            <li class="nav-item ms-xl-3">
-                                <a href="../backend/logout.php" class="btn btn-danger text-white btn-sm px-3 rounded-pill">
-                                    <i class="fas fa-sign-out-alt me-1"></i> Logout
-                                </a>
-                            </li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </nav>
-    </header> -->
 
     <!-- Konten Utama Halaman Transaksi -->
     <div class="container py-5">
@@ -396,7 +361,9 @@ try {
                     </thead>
                     <tbody>
                         <?php if (count($list_transaksi) > 0): ?>
-                            <?php $no = 1; foreach ($list_transaksi as $t): 
+                            <?php 
+                            $no = $offset + 1; 
+                            foreach ($list_transaksi as $t): 
                                 $subtotal = ($t['harga_paket'] * $t['qty']);
                                 $diskon_bersih = abs($t['diskon']);
                                 $grand_total = $subtotal + $t['biaya_tambahan'] - $diskon_bersih + $t['pajak'];
@@ -549,6 +516,39 @@ try {
                     </tbody>
                 </table>
             </div>
+
+            <!-- Navigasi Halaman / Pagination -->
+            <?php if ($total_pages > 1): ?>
+                <nav class="mt-4">
+                    <ul class="pagination justify-content-center mb-0">
+                        <?php 
+                        // Mempertahankan parameter filter di URL pagination
+                        $query_params = $_GET;
+                        unset($query_params['page']);
+                        $query_string = http_build_query($query_params);
+                        $query_string = $query_string ? '&' . $query_string : '';
+                        ?>
+                        
+                        <!-- Tombol Sebelumnya -->
+                        <li class="page-item <?= ($page <= 1) ? 'disabled' : ''; ?>">
+                            <a class="page-link" href="?page=<?= $page - 1; ?><?= $query_string; ?>">Sebelumnya</a>
+                        </li>
+
+                        <!-- Angka Halaman -->
+                        <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                            <li class="page-item <?= ($page == $i) ? 'active' : ''; ?>">
+                                <a class="page-link" href="?page=<?= $i; ?><?= $query_string; ?>"><?= $i; ?></a>
+                            </li>
+                        <?php endfor; ?>
+
+                        <!-- Tombol Selanjutnya -->
+                        <li class="page-item <?= ($page >= $total_pages) ? 'disabled' : ''; ?>">
+                            <a class="page-link" href="?page=<?= $page + 1; ?><?= $query_string; ?>">Selanjutnya</a>
+                        </li>
+                    </ul>
+                </nav>
+            <?php endif; ?>
+
         </div>
     </div>
 
@@ -614,6 +614,13 @@ try {
             </div>
         </div>
     </div>
+
+    <!-- Footer sederhana -->
+    <footer class="py-4 bg-body border-top text-center text-body-secondary text-sm">
+        <div class="container">
+            <p class="mb-0">© <?= date('Y'); ?> Lumiere Laundry.</p>
+        </div>
+    </footer>
 
     <!-- Scripts Bootstrap & Template -->
     <script src="./assets/libraries/bootstrap/js/bootstrap.bundle.min.js"></script>

@@ -1,5 +1,4 @@
 <?php
-// Hubungkan ke database (sudah otomatis start session di dalam koneksi.php)
 require_once '../Backend/components/koneksi.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -12,17 +11,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     try {
-        // CYBER SECURITY: PDO Prepared Statements untuk mencegah SQL Injection pada tabel tb_user
         $stmt = $pdo->prepare("SELECT id, nama, username, password, role, id_outlet FROM tb_user WHERE username = :username");
         $stmt->execute(['username' => $username]);
         $row = $stmt->fetch();
 
         if ($row) {
-            // Verifikasi password terenkripsi dari database
             if (password_verify($password, $row['password'])) {
-                // CYBER SECURITY: Mencegah Session Fixation
                 session_regenerate_id(true);
 
+                // Gunakan session standar agar terdeteksi di seluruh aplikasi
                 $_SESSION['user_id'] = $row['id'];
                 $_SESSION['nama'] = $row['nama'];
                 $_SESSION['username'] = $row['username'];
@@ -30,6 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['id_outlet'] = $row['id_outlet'];
                 $_SESSION['logged_in'] = true;
 
+                // Jika yang login Admin/Owner, arahkan ke Backend. Jika Kasir, ke Frontend.
                 if ($row['role'] === 'kasir') {
                     header("Location: home.php");
                     exit();
@@ -46,7 +44,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit();
         }
     } catch (PDOException $e) {
-        // Tangani error database dengan aman
         header("Location: login.php?error=wrong");
         exit();
     }

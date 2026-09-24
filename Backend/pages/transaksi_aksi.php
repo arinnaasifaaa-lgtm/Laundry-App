@@ -51,13 +51,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
 
         $pdo->commit();
-        header("Location: transaksi.php?success=Transaksi berhasil disimpan");
+        header("Location: ../transaksi.php?success=Transaksi berhasil disimpan");
         exit();
 
     } catch (Exception $e) {
         $pdo->rollBack();
         error_log($e->getMessage());
-        header("Location: transaksi.php?error=Gagal memproses transaksi");
+        header("Location: ../transaksi.php?error=Gagal memproses transaksi");
         exit();
     }
 }

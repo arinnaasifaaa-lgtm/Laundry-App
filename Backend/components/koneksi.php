@@ -35,7 +35,8 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 // Fungsi Generate CSRF Token
-function generateCsrfToken() {
+function generateCsrfToken()
+{
     if (empty($_SESSION['csrf_token'])) {
         $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
     }
@@ -43,7 +44,8 @@ function generateCsrfToken() {
 }
 
 // Fungsi Verifikasi CSRF Token
-function verifyCsrfToken($token) {
+function verifyCsrfToken($token)
+{
     if (!isset($_SESSION['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $token)) {
         exit("Akses ditolak: CSRF Token tidak valid!");
     }
@@ -52,7 +54,8 @@ function verifyCsrfToken($token) {
 // ==========================================
 // Fungsi Helper untuk Outlet Aktif
 // ==========================================
-function get_nama_outlet_aktif($pdo) {
+function get_nama_outlet_aktif($pdo)
+{
     if (!isset($_SESSION['id_outlet'])) {
         return 'Outlet Utama';
     }
@@ -69,15 +72,25 @@ function get_nama_outlet_aktif($pdo) {
 // ==========================================
 // Fungsi Satpam Hak Akses Role
 // ==========================================
-function restrict_access($allowed_roles = []) {
-    if (!isset($_SESSION['role'])) {
+function restrict_access($allowed_roles = [])
+{
+    // 1. Cek apakah user sudah login atau belum
+    if (!isset($_SESSION['user_id']) || !isset($_SESSION['role'])) {
         header("Location: login.php");
         exit();
     }
-    
-    if (!in_array($_SESSION['role'], $allowed_roles)) {
+
+    // 2. CEGAH KASIR: Jika rolenya kasir, mutlak usir keluar ke frontend!
+    if(!in_array($_SESSION['role'], $allowed_roles)) {
+        header("Location: login.php");
+        exit();
+    }
+
+        
+
+    // 3. Cek apakah role user diizinkan masuk ke halaman tersebut (untuk Admin/Owner)
+    if (!empty($allowed_roles) && !in_array($_SESSION['role'], $allowed_roles)) {
         echo "<script>alert('Akses Ditolak! Anda tidak memiliki izin ke halaman ini.'); window.location='dashboard.php';</script>";
         exit();
     }
 }
-?>

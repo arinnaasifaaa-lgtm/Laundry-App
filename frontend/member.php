@@ -1,7 +1,7 @@
 <?php
 // frontend/member.php
 require_once __DIR__ . '/../Backend/components/koneksi.php';
-restrict_access(['admin', 'kasir']);
+restrict_access(['kasir'] , 'kasir');
 
 // Cek apakah user sudah login
 if (!isset($_SESSION['user_id'])) {
@@ -114,7 +114,7 @@ try {
     <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.4/css/all.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-
+    <link rel="icon" type="image/jpeg" href="../Backend/img/loundryku.jpg">
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -348,6 +348,13 @@ try {
             </div>
         </div>
     </div>
+
+    <!-- Footer sederhana -->
+    <footer class="py-4 bg-body border-top text-center text-body-secondary text-sm">
+        <div class="container">
+            <p class="mb-0">© <?= date('Y'); ?> Lumiere Laundry.</p>
+        </div>
+    </footer>
 
     <!-- Scripts Bootstrap & Template -->
     <script src="./assets/libraries/bootstrap/js/bootstrap.bundle.min.js"></script>

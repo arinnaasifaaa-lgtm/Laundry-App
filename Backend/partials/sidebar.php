@@ -1,16 +1,16 @@
 <?php
 // Backend/partials/sidebar.php
-$role = $_SESSION['role'] ?? 'kasir';
+$role = $_SESSION['role'] ?? 'admin';
 $current_page = basename(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH));
 
 $menus = [
-    ['url' => 'dashboard.php', 'label' => 'Dashboard', 'icon' => 'bi-speedometer2', 'roles' => ['admin', 'kasir']],
+    ['url' => 'dashboard.php', 'label' => 'Dashboard', 'icon' => 'bi-speedometer2', 'roles' => ['admin', 'owner']],
     ['url' => 'outlet.php', 'label' => 'Outlet', 'icon' => 'bi-shop', 'roles' => ['admin']],
-    ['url' => 'member.php', 'label' => 'Member', 'icon' => 'bi-people', 'roles' => ['admin', 'kasir']],
+    ['url' => 'member.php', 'label' => 'Member', 'icon' => 'bi-people', 'roles' => ['admin']],
     ['url' => 'paket.php', 'label' => 'Paket Cucian', 'icon' => 'bi-tag', 'roles' => ['admin']],
     ['url' => 'user.php', 'label' => 'Pengguna / Kasir', 'icon' => 'bi-person-badge', 'roles' => ['admin']],
-    ['url' => 'transaksi.php', 'label' => 'Transaksi', 'icon' => 'bi-cart-check', 'roles' => ['admin', 'kasir']],
-    ['url' => 'laporan.php', 'label' => 'Laporan', 'icon' => 'bi-file-earmark-text', 'roles' => ['admin', 'kasir', 'owner']],
+    ['url' => 'transaksi.php', 'label' => 'Transaksi', 'icon' => 'bi-cart-check', 'roles' => ['admin']],
+    ['url' => 'laporan.php', 'label' => 'Laporan', 'icon' => 'bi-file-earmark-text', 'roles' => ['admin', 'owner']],
 ];
 ?>
 <nav id="sidebar" class="d-none d-md-block">

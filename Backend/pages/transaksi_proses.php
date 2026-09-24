@@ -1,13 +1,20 @@
 <?php
 // Backend/pages/transaksi_proses.php
 require_once __DIR__ . '/../components/koneksi.php';
-restrict_access(['admin', 'kasir']);
 
 // Cek apakah user sudah login
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php?error=Silakan login terlebih dahulu!");
     exit();
 }
+
+// Cegah Kasir masuk ke Backend, tendang otomatis ke Frontend
+if (isset($_SESSION['role']) && $_SESSION['role'] === 'kasir') {
+    header("Location: ../frontend/home.php");
+    exit();
+}
+
+restrict_access(['admin', 'owner']);
 
 $nama_user = $_SESSION['nama'] ?? 'Administrator';
 $role_user = $_SESSION['role'] ?? 'admin';
